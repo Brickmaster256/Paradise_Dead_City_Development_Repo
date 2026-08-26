@@ -28,3 +28,9 @@ MonoBehaviour:
   - {fileID: 2100000, guid: ec3ba1095a469b645a9d50b087209e65, type: 2}
   - {fileID: 2100000, guid: 7057e2516e46d5d499a59ceacb98b89f, type: 2}
   Army_Composition: {fileID: 11400000, guid: ae2f7e0eaaf0cd5489bd5efa6257055d, type: 2}
+  Faction_Icon: {fileID: 21300000, guid: 2cc59094c96b8e640af3060ab57c4910, type: 3}
+  Chaff_Icon: {fileID: 21300000, guid: f43d31a319b0248469e0814819974016, type: 3}
+  Specialist_A_Icon: {fileID: 21300000, guid: 9b695e99b68e9614b88a65eaec99853c, type: 3}
+  Specialist_B_Icon: {fileID: 21300000, guid: f43d31a319b0248469e0814819974016, type: 3}
+  Axillary_Icon: {fileID: 21300000, guid: f43d31a319b0248469e0814819974016, type: 3}
+  Death_Head_Icon: {fileID: 21300000, guid: d0e37e00908b24345a6431d807657451, type: 3}

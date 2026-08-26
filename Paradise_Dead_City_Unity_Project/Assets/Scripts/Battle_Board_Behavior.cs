@@ -31,6 +31,12 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private float Y_Offset = 0.2f;
     [SerializeField] private Vector3 Board_Center = Vector3.zero;
 
+    [Header("UI References")]
+    [SerializeField] private Card_UI_Controller Card_UI;
+
+    [Header("Combat References")]
+    [SerializeField] private Combat_Manager Combat_Manager_Ref;
+
     [Header("Map Data")]
     [SerializeField] private Map_Data_SO Current_Map;
     [SerializeField] private GameObject Cover_Tile_Prefab;
@@ -252,6 +258,26 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Process_Gameplay_Input(Vector2Int Hit_Position, Ray Ray)
     {
+        // COMBAT TARGETING MODE - Must be first and block ALL other input
+        if (Combat_Manager_Ref != null && Combat_Manager_Ref.Is_Currently_Selecting_Target())
+        {
+            // Left click to select target
+            if (Click_Action != null && Click_Action.WasPressedThisFrame())
+            {
+                Combat_Manager_Ref.Try_Select_Target(Hit_Position);
+            }
+
+            // Right click to cancel
+            if (RightClick_Action != null && RightClick_Action.WasPressedThisFrame())
+            {
+                Combat_Manager_Ref.Cancel_Attack();
+            }
+
+            // BLOCK ALL OTHER INPUT - don't process anything else
+            return;
+        }
+
+        // Normal gameplay input processing (only runs if NOT in combat targeting)
         if (Click_Action != null && Click_Action.WasPressedThisFrame())
             Handle_Model_Selection(Hit_Position);
 
@@ -266,6 +292,31 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         Update_Drag_Hold_Timer();
         Update_Dragged_Model_Position(Ray, Hit_Position);
+    }
+
+    public void Select_Model_Public(Model_Standard_Behavior Model)
+    {
+        if (Model == null || !Model.gameObject.activeSelf)
+            return;
+
+        // First deselect current
+        if (Selected_Model != null && Selected_Model != Model)
+        {
+            Clear_Movement_Range_Highlights();
+            Clear_Path_Highlights();
+        }
+
+        Selected_Model = Model;
+        Display_Movement_Range(Model);
+
+        // Update the card UI
+        if (Card_UI != null)
+        {
+            Faction_Data_SO Faction = Model.Team == 1 ? Player_1_Faction : Player_2_Faction;
+            Card_UI.Show_Model_Info(Model, Faction);
+        }
+
+        Debug.Log($"Re-selected {Model.Stats.Model_Name} at ({Model.Current_X}, {Model.Current_Y})");
     }
 
     private void Handle_Model_Selection(Vector2Int Hit_Position)
@@ -339,6 +390,58 @@ public class Battle_Board_Behavior : MonoBehaviour
         Display_Movement_Range(Model);
         Start_Hold_Timer(Hit_Position);
         Debug.Log($"Selected {Model.Type} at ({Model.Current_X}, {Model.Current_Y}). Hold to drag.");
+
+        // Update the card UI with the selected model's info
+        if (Card_UI != null)
+        {
+            Faction_Data_SO Faction = Model.Team == 1 ? Player_1_Faction : Player_2_Faction;
+            Card_UI.Show_Model_Info(Model, Faction);
+        }
+    }
+
+    public Model_Standard_Behavior Get_Selected_Model()
+    {
+        return Selected_Model;
+    }
+
+    public Model_Standard_Behavior Get_Model_At(int X, int Y)
+    {
+        if (X < 0 || X >= Tile_Count_X || Y < 0 || Y >= Tile_Count_Y)
+            return null;
+        return Models[X, Y];
+    }
+
+    public void Remove_Model(int X, int Y)
+    {
+        if (X >= 0 && X < Tile_Count_X && Y >= 0 && Y < Tile_Count_Y)
+        {
+            Models[X, Y] = null;
+        }
+    }
+
+    public GameObject[,] Get_Tiles()
+    {
+        return Tiles;
+    }
+
+    public Material Get_Tile_Material()
+    {
+        return Tile_Material;
+    }
+
+    public int Get_Tile_Count_Y()
+    {
+        return Tile_Count_Y;
+    }
+
+    public int Get_Tile_Count_X()
+    {
+        return Tile_Count_X;
+    }
+
+    public void Deselect_Current_Model_Public()
+    {
+        Deselect_Current_Model();
     }
 
     private void Update_Drag_Hold_Timer()
@@ -416,7 +519,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         Vector2Int Start = new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y);
         int Max_Distance = Dragged_Model.Stats != null ? Dragged_Model.Stats.Movement_Range : 3;
 
-        // Find all paths
         All_Paths_To_Target = Find_All_Paths(Start, Target, Max_Distance);
 
         if (All_Paths_To_Target.Count == 0)
@@ -425,10 +527,8 @@ public class Battle_Board_Behavior : MonoBehaviour
             return;
         }
 
-        // Draw all paths with proper layering
         Draw_All_Paths_With_Layering();
 
-        // Log all paths
         Debug.Log($"Path 1/{All_Paths_To_Target.Count} (Primary): {Analyze_Path(All_Paths_To_Target[0])}");
         for (int i = 1; i < All_Paths_To_Target.Count; i++)
         {
@@ -517,6 +617,8 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Start == Target)
             return All_Paths;
 
+        int Moving_Team = Dragged_Model != null ? Dragged_Model.Team : 0;
+
         // BFS setup
         Queue<Vector2Int> Queue = new Queue<Vector2Int>();
         Dictionary<Vector2Int, int> Distance = new Dictionary<Vector2Int, int>();
@@ -553,7 +655,10 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Neighbor.y < 0 || Neighbor.y >= Tile_Count_Y)
                     continue;
 
-                if (!Is_Tile_Passable(Neighbor.x, Neighbor.y))
+                if (!Is_Tile_Enterable(Neighbor.x, Neighbor.y, Moving_Team))
+                    continue;
+
+                if (Neighbor != Target && Models[Neighbor.x, Neighbor.y] != null && Models[Neighbor.x, Neighbor.y].Team != Moving_Team)
                     continue;
 
                 int New_Dist = Current_Dist + 1;
@@ -595,6 +700,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         // If we reached the start, save this path
         if (Parents[Current].Count == 0)
         {
+            Current_Path.Insert(0, Current);
             All_Paths.Add(new List<Vector2Int>(Current_Path));
             return;
         }
@@ -661,10 +767,23 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         Clear_Movement_Range_Highlights();
         Clear_Path_Highlights();
+
+        // CLEAR COMBAT HIGHLIGHTS
+        if (Combat_Manager_Ref != null)
+        {
+            Combat_Manager_Ref.Force_Clear_Combat_State();
+        }
+
         Selected_Model = null;
         Dragged_Model = null;
         Reset_Drag_State();
         Debug.Log("Model deselected");
+
+        // Hide the card UI when model is deselected
+        if (Card_UI != null)
+        {
+            Card_UI.Hide_Model_Info();
+        }
     }
 
     private void Reset_Drag_State()
@@ -723,6 +842,9 @@ public class Battle_Board_Behavior : MonoBehaviour
     {
         foreach (Vector2Int Tile in Highlight_Group)
         {
+            if (Path_Highlight_Tiles.Contains(Tile))
+                continue;
+
             Renderer Renderer = Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>();
             if (Renderer != null && Renderer.material != null)
             {
@@ -743,6 +865,12 @@ public class Battle_Board_Behavior : MonoBehaviour
         int Movement_Range = Model.Stats.Movement_Range;
         int Start_X = Model.Current_X;
         int Start_Y = Model.Current_Y;
+
+        // ADD: Highlight the model's own tile
+        Vector2Int Start_Tile = new Vector2Int(Start_X, Start_Y);
+        Movement_Range_Highlights.Add(Start_Tile);
+        if (Movement_Range_Material != null)
+            Tiles[Start_X, Start_Y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
 
         bool[,] Visited = new bool[Tile_Count_X, Tile_Count_Y];
         Queue<Vector2Int> To_Explore = new Queue<Vector2Int>();
@@ -780,7 +908,7 @@ public class Battle_Board_Behavior : MonoBehaviour
                 if (Visited[Neighbor.x, Neighbor.y])
                     continue;
 
-                if (!Is_Tile_Passable(Neighbor.x, Neighbor.y))
+                if (!Is_Tile_Enterable(Neighbor.x, Neighbor.y, Model.Team))
                     continue;
 
                 Visited[Neighbor.x, Neighbor.y] = true;
@@ -797,7 +925,6 @@ public class Battle_Board_Behavior : MonoBehaviour
 
                 if (New_Distance < Movement_Range)
                     To_Explore.Enqueue(Neighbor);
-                
             }
         }
 
@@ -807,7 +934,7 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Show_Path_Highlights(List<Vector2Int> Path, int Priority)
     {
-        bool Path_Has_Hazard = Path_Contains_Hazard(Path);
+        bool Is_Primary = (Priority == 0);
         Material Regular_Path_Material = Get_Path_Material(Priority, false);
 
         foreach (Vector2Int Tile in Path)
@@ -817,7 +944,7 @@ public class Battle_Board_Behavior : MonoBehaviour
                 Path_Highlight_Tiles.Add(Tile);
             }
 
-            if (Tile_Is_Hazard(Tile) && Hazard_Path_Material != null)
+            if (Is_Primary && Tile_Is_Hazard(Tile) && Hazard_Path_Material != null)
             {
                 Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Hazard_Path_Material;
             }
@@ -1171,6 +1298,12 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Normal_Drag_Offset;
     }
 
+    public void Clear_Movement_Highlights_Public()
+    {
+        Clear_Movement_Range_Highlights();
+        Clear_Path_Highlights();
+    }
+
     // -- BOARD GENERATION --
 
     private void Generate_All_Tiles(float Tile_Size, int Tile_Count_X, int Tile_Count_Y)
@@ -1380,5 +1513,27 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         int Player_2_Index = Random.Range(0, Available_Indices.Count);
         Player_2_Mat = Materials[Available_Indices[Player_2_Index]];
+    }
+
+    private bool Is_Tile_Enterable(int X, int Y, int Team)
+    {
+        if (X < 0 || X >= Tile_Count_X || Y < 0 || Y >= Tile_Count_Y)
+            return false;
+
+        if (!Is_Tile_Passable(X, Y))
+            return false;
+
+        if (Models[X, Y] != null && Models[X, Y].Team != Team)
+            return false;
+
+        return true;
+    }
+
+    private bool Is_Tile_Enterable_For_Selected(int X, int Y)
+    {
+        if (Selected_Model == null)
+            return Is_Tile_Passable(X, Y);
+
+        return Is_Tile_Enterable(X, Y, Selected_Model.Team);
     }
 }

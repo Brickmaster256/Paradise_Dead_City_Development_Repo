@@ -12,12 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c84f65ce1f26f9d41b3565fda15b0e6d, type: 3}
   m_Name: Cyborg_Death_Head
   m_EditorClassIdentifier: Assembly-CSharp::Model_Stats_SO
-  Model_Name: Cyber Litch
+  Model_Name: Cyber Lich
   Type: 4
   Health: 9
+  Armor_Saves: 1
+  Armor_Target: 4
+  Attack_Skill: 3
   Attack_Damage: 4
-  Attack_Ranged: 2
-  Attack_Chance: 0.75
+  Attack_Range: 1
   Movement_Range: 3
   Is_Ranged: 0
   Has_Splash_Damage: 0

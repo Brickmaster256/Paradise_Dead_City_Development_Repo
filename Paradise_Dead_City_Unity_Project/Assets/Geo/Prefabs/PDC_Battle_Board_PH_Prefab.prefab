@@ -139,7 +139,8 @@ MonoBehaviour:
   Tile_Size: 2.4339
   Y_Offset: 0.51
   Board_Center: {x: 0, y: 0, z: 0}
-  Current_Map: {fileID: 11400000, guid: 6bf79145ea697de4b8f0a6d552821d71, type: 2}
+  Card_UI: {fileID: 0}
+  Current_Map: {fileID: 11400000, guid: ce992d7ca3368964894a5280963a3543, type: 2}
   Cover_Tile_Prefab: {fileID: 5950313440568233867, guid: db9108c1cfa73be409f7a380137362c8, type: 3}
   Wall_Tile_Prefab: {fileID: 5950313440568233867, guid: 999ee9dba6bf1a94b9a6a96de8aa7c63, type: 3}
   Terrain_Tile_Prefab: {fileID: 5950313440568233867, guid: 31275e1bdfc3b9d46ade27e0a8dd7a6c, type: 3}
@@ -163,7 +164,7 @@ MonoBehaviour:
   Hazard_Path_Material: {fileID: 2100000, guid: fba4b9d32bdf68d479bf86a2e93adc14, type: 2}
   Flash_Speed: 3
   Flash_Min_Alpha: 0.3
-  Flash_Max_Alpha: 0.7
+  Flash_Max_Alpha: 0.5
   InputActions: {fileID: -944628639613478452, guid: 4a6743d916687234fbaab43d6a68bd8b, type: 3}
 --- !u!1 &8267950992274266666
 GameObject:
