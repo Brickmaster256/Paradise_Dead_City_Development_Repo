@@ -73,7 +73,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6060389736486774675}
-  - component: {fileID: -3859813082883187004}
+  - component: {fileID: 7212598566797861656}
   m_Layer: 0
   m_Name: PDC_Undead_A_PH_Prefab
   m_TagString: Untagged
@@ -97,7 +97,7 @@ Transform:
   - {fileID: 2817172787476838799}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &-3859813082883187004
+--- !u!114 &7212598566797861656
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -106,13 +106,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 7068030445672354757}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4fbc851bd335b02459ec2ca5532f865a, type: 3}
+  m_Script: {fileID: 11500000, guid: 32ba38b4df4700b47ad96b01b05cb3b5, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Specialist_A_Behavior
+  m_EditorClassIdentifier: Assembly-CSharp::Model_Standard_Behavior
   Team: 0
   Current_X: 0
   Current_Y: 0
-  Type: 2
+  Type: 1
+  Stats: {fileID: 0}
+  Current_Health: 0
+  Has_Moved_This_Turn: 0
+  Has_Attacked_This_Turn: 0
+  Movement_Lerp_Speed: 10
 --- !u!1 &8309850066359631556
 GameObject:
   m_ObjectHideFlags: 0

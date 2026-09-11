@@ -132,8 +132,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6060389736486774675}
-  - component: {fileID: 7824024289558557348}
   - component: {fileID: -1429082629706054149}
+  - component: {fileID: -3146286872644498888}
   m_Layer: 0
   m_Name: PDC_Husk_D_PH_Prefab
   m_TagString: Untagged
@@ -157,22 +157,6 @@ Transform:
   - {fileID: 4258260343379645207}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &7824024289558557348
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7068030445672354757}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9695d79a34f56bb40a4f906f6e51ff57, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Chaff_Behavior
-  Team: 0
-  Current_X: 0
-  Current_Y: 0
-  Type: 1
 --- !u!23 &-1429082629706054149
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -222,6 +206,27 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &-3146286872644498888
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7068030445672354757}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32ba38b4df4700b47ad96b01b05cb3b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Model_Standard_Behavior
+  Team: 0
+  Current_X: 0
+  Current_Y: 0
+  Type: 0
+  Stats: {fileID: 0}
+  Current_Health: 0
+  Has_Moved_This_Turn: 0
+  Has_Attacked_This_Turn: 0
+  Movement_Lerp_Speed: 10
 --- !u!1 &9113512712032519975
 GameObject:
   m_ObjectHideFlags: 0

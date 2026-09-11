@@ -73,8 +73,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8675127459931786985}
-  - component: {fileID: 7772942940634562020}
   - component: {fileID: 6610002831331977262}
+  - component: {fileID: -5897729162201387136}
   m_Layer: 0
   m_Name: PDC_Demon_B_PH_Prefab
   m_TagString: Untagged
@@ -98,22 +98,6 @@ Transform:
   - {fileID: 5384819607314584525}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &7772942940634562020
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8300115262041543763}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ba23ae92b1667424dad1f3ff28428dc4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Specialist_B_Behavior
-  Team: 0
-  Current_X: 0
-  Current_Y: 0
-  Type: 2
 --- !u!23 &6610002831331977262
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -163,6 +147,27 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &-5897729162201387136
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8300115262041543763}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32ba38b4df4700b47ad96b01b05cb3b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Model_Standard_Behavior
+  Team: 0
+  Current_X: 0
+  Current_Y: 0
+  Type: 2
+  Stats: {fileID: 0}
+  Current_Health: 0
+  Has_Moved_This_Turn: 0
+  Has_Attacked_This_Turn: 0
+  Movement_Lerp_Speed: 10
 --- !u!1 &9125287139103536012
 GameObject:
   m_ObjectHideFlags: 0

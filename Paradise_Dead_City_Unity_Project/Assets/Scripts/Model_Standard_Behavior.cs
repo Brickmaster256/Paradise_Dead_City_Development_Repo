@@ -3,7 +3,7 @@ using UnityEngine;
 public enum Model_Type
 {
     Chaff = 0,
-    Specialist_A= 1,
+    Specialist_A = 1,
     Specialist_B = 2,
     Axillary = 3,
     DeathHead = 4
@@ -11,43 +11,103 @@ public enum Model_Type
 
 public class Model_Standard_Behavior : MonoBehaviour
 {
+    // ============================================================
+    // IDENTITY
+    // ============================================================
+
     public int Team;
     public int Current_X;
     public int Current_Y;
     public Model_Type Type;
 
-    // Stats reference (assigned at spawn)
+    // ============================================================
+    // STATS
+    // ============================================================
+
+    // Assigned by Battle_Board_Behavior when the model is spawned.
     public Model_Stats_SO Stats;
 
-    // Current state
+    // ============================================================
+    // CURRENT STATE
+    // ============================================================
+
     public int Current_Health;
     public bool Has_Moved_This_Turn;
     public bool Has_Attacked_This_Turn;
 
-    // Smooth model transitioning
-    private Vector3 Desired_Position;
+    // ============================================================
+    // SMOOTH MOTION
+    // ============================================================
+
+    [Tooltip("Higher values snap the model to its target position faster. Multiplied by Time.deltaTime each frame.")]
+    [SerializeField] private float Movement_Lerp_Speed = 10f;
+
+    // Distance below which the model snaps to the target and stops lerping.
+    private const float Arrival_Epsilon = 0.001f;
+
+    private Vector3 Target_Position;
+    private bool Is_Moving = false;
 
     private void Update()
     {
-        transform.position = Vector3.Lerp(transform.position, Desired_Position, Time.deltaTime * 10f);
+        if (!Is_Moving)
+            return;
+
+        transform.position = Vector3.Lerp(transform.position, Target_Position, Time.deltaTime * Movement_Lerp_Speed);
+
+        if (Vector3.SqrMagnitude(transform.position - Target_Position) <= Arrival_Epsilon * Arrival_Epsilon)
+        {
+            transform.position = Target_Position;
+            Is_Moving = false;
+        }
     }
 
-    public virtual void Set_Position(Vector3 Position, bool Force =  false)
+    public void Set_Position(Vector3 Position, bool Force = false)
     {
-        Desired_Position = Position;
+        Target_Position = Position;
+
         if (Force)
-            transform.position = Desired_Position;
+        {
+            transform.position = Target_Position;
+            Is_Moving = false;
+        }
+        else
+        {
+            Is_Moving = true;
+        }
     }
 
-    // Check if this model can move to a target tile
+    // ============================================================
+    // MOVEMENT QUERIES
+    // ============================================================
+
+    /// <summary>
+    /// Returns true if this model could move to the given tile on its own,
+    /// ignoring whether the tile is currently occupied by another model.
+    /// </summary>
     public bool Can_Move_To(int Target_X, int Target_Y)
     {
         if (Has_Moved_This_Turn)
             return false;
 
+        // Fallback for models spawned without stats. Treats them as unconstrained.
         if (Stats == null)
-            return true; // No stats = free movement (backward compatibility)
+            return true;
 
-        return Stats.Is_Witin_Movement_Range(Current_X, Current_Y, Target_X, Target_Y);
+        return Stats.Is_Within_Movement_Range(Current_X, Current_Y, Target_X, Target_Y);
+    }
+
+    /// <summary>
+    /// Applies damage directly to this model. Returns true if the model
+    /// survived, false if its health dropped to 0 or below. The caller is
+    /// responsible for triggering the kill/cleanup flow when this returns false.
+    /// </summary>
+    public bool Take_Damage(int Amount)
+    {
+        if (Amount <= 0)
+            return Current_Health > 0;
+
+        Current_Health -= Amount;
+        return Current_Health > 0;
     }
 }

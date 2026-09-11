@@ -164,7 +164,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6236840331015411708}
-  - component: {fileID: -7403120047993235859}
+  - component: {fileID: -4920628234894407618}
   m_Layer: 0
   m_Name: PDC_Cyborg_B_PH_Prefab
   m_TagString: Untagged
@@ -188,7 +188,7 @@ Transform:
   - {fileID: 7229178648286399192}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &-7403120047993235859
+--- !u!114 &-4920628234894407618
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -197,10 +197,15 @@ MonoBehaviour:
   m_GameObject: {fileID: 6757199961033575750}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ba23ae92b1667424dad1f3ff28428dc4, type: 3}
+  m_Script: {fileID: 11500000, guid: 32ba38b4df4700b47ad96b01b05cb3b5, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Specialist_B_Behavior
+  m_EditorClassIdentifier: Assembly-CSharp::Model_Standard_Behavior
   Team: 0
   Current_X: 0
   Current_Y: 0
   Type: 2
+  Stats: {fileID: 0}
+  Current_Health: 0
+  Has_Moved_This_Turn: 0
+  Has_Attacked_This_Turn: 0
+  Movement_Lerp_Speed: 10

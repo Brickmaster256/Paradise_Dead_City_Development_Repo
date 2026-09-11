@@ -3,47 +3,89 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "New Model Stats", menuName = "Scriptable Objects/Model Stats")]
 public class Model_Stats_SO : ScriptableObject
 {
-    [Header("Model Name")]
+    // ============================================================
+    // IDENTITY
+    // ============================================================
+
+    [Header("Identity")]
     public string Model_Name;
     public Model_Type Type;
 
-    [Header("Model Stats")]
+
+    // ============================================================
+    // BASE STATS
+    // ============================================================
+
+    [Header("Base Stats")]
+    [Tooltip("Maximum health. Current health is tracked on the model instance.")]
     public int Health = 2;
 
-    [Header("Combat Stats (D6 System)")]
-    [Tooltip("Number of armor saves this model gets")]
-    public int Armor_Saves = 1;
-    [Tooltip("D6 roll needed for armor save (e.g., 4 means 4+)")]
-    [Range(1, 6)] public int Armor_Target = 4;
-    [Tooltip("D6 roll needed to hit (e.g., 3 means 3+)")]
-    [Range(1, 6)] public int Attack_Skill = 3;
-    [Tooltip("Damage dealt on successful attack")]
-    public int Attack_Damage = 1;
-    [Tooltip("Range in tiles (1 for melee, 2+ for ranged/large models)")]
-    public int Attack_Range = 1;
+    [Tooltip("Movement range in tiles (Manhattan distance).")]
+    [Range(1, 8)] public int Movement_Range = 2;
 
-    [Header("Model Movement")]
-    public int Movement_Range = 2;
+
+    // ============================================================
+    // COMBAT STATS (D6 SYSTEM)
+    // ============================================================
+
+    [Header("Combat Stats (D6 System)")]
+    [Tooltip("Number of armor saves this model gets.")]
+    public int Armor_Saves = 1;
+
+    [Tooltip("D6 roll needed for armor save (e.g., 4 means 4+).")]
+    [Range(1, 6)] public int Armor_Target = 4;
+
+    [Tooltip("D6 roll needed to hit (e.g., 3 means 3+).")]
+    [Range(1, 6)] public int Attack_Skill = 3;
+
+    [Tooltip("Damage dealt on successful attack.")]
+    public int Attack_Damage = 1;
+
+    [Tooltip("Range in tiles (1 for melee, 2+ for ranged/large models).")]
+    [Range(1, 8)] public int Attack_Range = 1;
+
+
+    // ============================================================
+    // SPECIAL RULES
+    // ============================================================
 
     [Header("Model Special Rules")]
     public bool Is_Ranged = false;
     public bool Has_Splash_Damage = false;
 
+
+    // ============================================================
+    // SPECIAL ABILITIES
+    // ============================================================
+
     [Header("Model Special Abilities")]
+    // Placeholder flag for a future ability system. Currently only
+    // used by the card UI to decide whether to show the "Special
+    // Ability" description line.
     public bool Has_Ability = false;
 
-    // Is in movement range?
-    public bool Is_Witin_Movement_Range(int Current_X, int Current_Y, int Target_X, int Target_Y)
+
+    // ============================================================
+    // RANGE QUERIES
+    // ============================================================
+
+    public bool Is_Within_Movement_Range(int Current_X, int Current_Y, int Target_X, int Target_Y)
     {
-        int Distance = Mathf.Abs(Target_X - Current_X) + Mathf.Abs(Target_Y - Current_Y);
-        return Distance <= Movement_Range;
+        return Manhattan_Distance(Current_X, Current_Y, Target_X, Target_Y) <= Movement_Range;
     }
 
-    // Check if target is in attack range
     public bool Is_In_Attack_Range(int Current_X, int Current_Y, int Target_X, int Target_Y)
     {
-        int Distance = Mathf.Abs(Target_X - Current_X) + Mathf.Abs(Target_Y - Current_Y);
-        return Distance <= Attack_Range;
+        return Manhattan_Distance(Current_X, Current_Y, Target_X, Target_Y) <= Attack_Range;
     }
 
+    /// <summary>
+    /// Orthogonal distance between two tiles, ignoring terrain and
+    /// intermediate tiles. Used for both movement and attack range
+    /// checks.
+    /// </summary>
+    public static int Manhattan_Distance(int From_X, int From_Y, int To_X, int To_Y)
+    {
+        return Mathf.Abs(To_X - From_X) + Mathf.Abs(To_Y - From_Y);
+    }
 }
