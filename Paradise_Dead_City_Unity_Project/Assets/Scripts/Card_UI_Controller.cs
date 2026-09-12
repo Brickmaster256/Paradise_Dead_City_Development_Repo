@@ -26,8 +26,12 @@ public class Card_UI_Controller : MonoBehaviour
     [Header("Animator")]
     [SerializeField] private Animator Card_Animator;
 
+    [Header("References")]
+    [SerializeField] private Battle_Board_Behavior Battle_Board;
+
     [Header("Buttons")]
     [SerializeField] private Button Attack_Button;
+    [SerializeField] private Button Sprint_Button;
 
     [Header("Text Fields")]
     [SerializeField] private TextMeshProUGUI Name_Text;
@@ -63,9 +67,12 @@ public class Card_UI_Controller : MonoBehaviour
 
     private bool Is_Card_Open = false;
     private Model_Standard_Behavior Current_Displayed_Model;
+    private Faction_Data_SO Current_Faction;
     private Coroutine Current_Transition;
 
     private Combat_Manager Combat_Mgr;
+
+    private Coroutine Current_Close;
 
 
     // ============================================================
@@ -87,6 +94,11 @@ public class Card_UI_Controller : MonoBehaviour
         Combat_Mgr = FindAnyObjectByType<Combat_Manager>();
         if (Combat_Mgr == null)
             Debug.LogWarning("Card_UI_Controller: Combat_Manager not found in scene! Attack button won't work.");
+
+        if (Battle_Board == null)
+            Battle_Board = FindAnyObjectByType<Battle_Board_Behavior>();
+        if (Battle_Board == null)
+            Debug.LogWarning("Card_UI_Controller: Battle_Board not found in scene! Sprint button won't work.");
     }
 
     private void Start()
@@ -101,6 +113,9 @@ public class Card_UI_Controller : MonoBehaviour
 
         if (Attack_Button != null)
             Attack_Button.onClick.AddListener(On_Attack_Button_Clicked);
+
+        if (Sprint_Button != null)
+            Sprint_Button.onClick.AddListener(On_Sprint_Button_Clicked);
     }
 
 
@@ -116,11 +131,20 @@ public class Card_UI_Controller : MonoBehaviour
             return;
         }
 
-        // Same model, card already open: nothing to do
-        if (Is_Card_Open && Current_Displayed_Model == Model)
-            return;
+        // Cancel any in-progress close; we're about to (re)open the card.
+        if (Current_Close != null)
+        {
+            StopCoroutine(Current_Close);
+            Current_Close = null;
+        }
 
-        // Different model while open: close then open
+        if (Is_Card_Open && Current_Displayed_Model == Model)
+        {
+            // Already showing this model - just refresh data/buttons without animation.
+            Refresh_Card_For_Model(Model);
+            return;
+        }
+
         if (Is_Card_Open && Current_Displayed_Model != Model)
         {
             if (Current_Transition != null)
@@ -130,7 +154,7 @@ public class Card_UI_Controller : MonoBehaviour
             return;
         }
 
-        // Card is closed: open directly
+        Current_Faction = Faction;
         Current_Displayed_Model = Model;
         Populate_Card_Data(Model, Faction);
         Trigger_Open();
@@ -147,7 +171,10 @@ public class Card_UI_Controller : MonoBehaviour
             Current_Transition = null;
         }
 
-        StartCoroutine(Close_Card_Sequence());
+        if (Current_Close != null)
+            StopCoroutine(Current_Close);
+
+        Current_Close = StartCoroutine(Close_Card_Sequence());
     }
 
     public void Set_Active_Player(int Player)
@@ -204,6 +231,22 @@ public class Card_UI_Controller : MonoBehaviour
         Is_Card_Open = true;
     }
 
+    /// <summary>
+    /// Forces a full re-population of the card for the given model, even if
+    /// it's already the displayed model. Use after state changes (movement,
+    /// damage) that should update button interactability.
+    /// </summary>
+    public void Refresh_Card_For_Model(Model_Standard_Behavior Model)
+    {
+        if (Model == null || Model.Stats == null)
+            return;
+
+        if (Current_Displayed_Model != Model)
+            return;
+
+        Populate_Card_Data(Model, Current_Faction);
+    }
+
     private void Trigger_Close()
     {
         if (Card_Animator != null)
@@ -257,6 +300,9 @@ public class Card_UI_Controller : MonoBehaviour
 
         if (Attack_Button != null)
             Attack_Button.interactable = false;
+
+        if (Sprint_Button != null)
+            Sprint_Button.interactable = false;
     }
 
 
@@ -299,17 +345,27 @@ public class Card_UI_Controller : MonoBehaviour
 
     private void Update_Attack_Button_State()
     {
-        if (Attack_Button == null)
+        if (Attack_Button == null && Sprint_Button == null)
             return;
 
-        if (Current_Displayed_Model == null)
-        {
-            Attack_Button.interactable = false;
-            return;
-        }
+        bool Is_Mine = Current_Displayed_Model != null
+                       && Current_Displayed_Model.Team == Active_Player;
 
-        Attack_Button.interactable = !Current_Displayed_Model.Has_Attacked_This_Turn
-                                     && Current_Displayed_Model.Team == Active_Player;
+        bool Can_Act = Is_Mine
+                       && !Current_Displayed_Model.Has_Attacked_This_Turn
+                       && !Current_Displayed_Model.Has_Ended_Turn;
+
+        bool Can_Attack = Can_Act && !Current_Displayed_Model.Is_Sprinting_This_Turn;
+        bool Can_Sprint = Can_Act && !Current_Displayed_Model.Is_Sprinting_This_Turn;
+
+        if (Attack_Button != null)
+            Attack_Button.interactable = Can_Attack;
+
+        if (Sprint_Button != null)
+            Sprint_Button.interactable = Can_Sprint;
+
+        string Name = Current_Displayed_Model != null
+            ? Current_Displayed_Model.Stats.Model_Name : "(none)";
     }
 
     /// <summary>
@@ -332,9 +388,26 @@ public class Card_UI_Controller : MonoBehaviour
 
     private void On_Attack_Button_Clicked()
     {
+        if (Battle_Board != null)
+            Battle_Board.Notify_UI_Button_Pressed();
+
         if (Combat_Mgr != null)
             Combat_Mgr.On_Attack_Button_Pressed();
         else
-            Debug.LogError("Combat_Manager not found in scene! Make sure it exists on a GameObject.");
+            Debug.LogError("Combat_Manager not found in scene!");
+    }
+
+    private void On_Sprint_Button_Clicked()
+    {
+        if (Battle_Board == null)
+        {
+            Debug.LogError("Card_UI_Controller: Battle_Board reference missing.");
+            return;
+        }
+
+        Battle_Board.Notify_UI_Button_Pressed();
+
+        if (Battle_Board.Begin_Sprint())
+            Hide_Model_Info();
     }
 }

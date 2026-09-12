@@ -43,8 +43,6 @@ public class Combat_Manager : MonoBehaviour
     private List<Vector2Int> Attack_Range_Highlights = new List<Vector2Int>();
     private List<Vector2Int> Valid_Target_Highlights = new List<Vector2Int>();
 
-    // Guards against the same click being read by both the UI button and the board.
-    private int Frame_Attack_Button_Pressed = -1;
 
 
     // ============================================================
@@ -64,17 +62,12 @@ public class Combat_Manager : MonoBehaviour
 
     public bool Is_Currently_Selecting_Target() => Is_Selecting_Target;
 
-    public bool Was_Attack_Button_Just_Pressed() => Time.frameCount == Frame_Attack_Button_Pressed;
-
-
     // ============================================================
     // ATTACK INITIATION
     // ============================================================
 
     public void On_Attack_Button_Pressed()
     {
-        Frame_Attack_Button_Pressed = Time.frameCount;
-
         if (Battle_Board == null)
         {
             Debug.LogError("Combat_Manager: Battle_Board reference is missing!");
@@ -86,7 +79,13 @@ public class Combat_Manager : MonoBehaviour
         if (Selected_Model == null)
             return;
 
+        if (Selected_Model.Is_Sprinting_This_Turn)
+            return;
+
         if (Selected_Model.Team != Battle_Board.Get_Active_Player())
+            return;
+
+        if (Selected_Model.Has_Ended_Turn)
             return;
 
         if (Selected_Model.Has_Attacked_This_Turn)
@@ -100,6 +99,9 @@ public class Combat_Manager : MonoBehaviour
         Attacking_Model = Selected_Model;
         Is_Selecting_Target = true;
         Show_Attack_Range(Selected_Model);
+
+        if (Selected_Model.Is_Sprinting_This_Turn)
+            return;
     }
 
     private void Show_Attack_Range(Model_Standard_Behavior Model)
@@ -205,13 +207,13 @@ public class Combat_Manager : MonoBehaviour
         {
             Debug.Log($"ATTACK MISSED! {Attacker.Stats.Model_Name} fails to hit.");
             Attacker.Has_Attacked_This_Turn = true;
+            Attacker.Has_Ended_Turn = true;
             End_Attack(Attacker);
             yield break;
         }
 
         Debug.Log($"ATTACK HITS! {Attacker.Stats.Model_Name} lands the attack.");
 
-        // Roll armor saves (yields between rolls for readability)
         int Damage_Negated = 0;
         yield return Roll_Armor_Saves(Defender, result => Damage_Negated = result);
 
@@ -224,6 +226,7 @@ public class Combat_Manager : MonoBehaviour
         {
             Debug.Log($"{Defender.Stats.Model_Name} fully defended the attack! No damage taken.");
             Attacker.Has_Attacked_This_Turn = true;
+            Attacker.Has_Ended_Turn = true;
             End_Attack(Attacker);
             yield break;
         }
@@ -238,6 +241,7 @@ public class Combat_Manager : MonoBehaviour
         }
 
         Attacker.Has_Attacked_This_Turn = true;
+        Attacker.Has_Ended_Turn = true;
         End_Attack(Attacker);
 
         Debug.Log("=== COMBAT END ===");
@@ -292,7 +296,6 @@ public class Combat_Manager : MonoBehaviour
     {
         return Random.Range(D6_Min, D6_Max_Exclusive);
     }
-
 
     // ============================================================
     // HIGHLIGHT FLASHING

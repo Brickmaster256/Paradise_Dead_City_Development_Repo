@@ -32,8 +32,10 @@ public class Model_Standard_Behavior : MonoBehaviour
     // ============================================================
 
     public int Current_Health;
-    public bool Has_Moved_This_Turn;
+    public int Movement_Remaining_This_Turn;
     public bool Has_Attacked_This_Turn;
+    public bool Has_Ended_Turn;
+    public bool Is_Sprinting_This_Turn;
 
     // ============================================================
     // SMOOTH MOTION
@@ -80,22 +82,6 @@ public class Model_Standard_Behavior : MonoBehaviour
     // ============================================================
     // MOVEMENT QUERIES
     // ============================================================
-
-    /// <summary>
-    /// Returns true if this model could move to the given tile on its own,
-    /// ignoring whether the tile is currently occupied by another model.
-    /// </summary>
-    public bool Can_Move_To(int Target_X, int Target_Y)
-    {
-        if (Has_Moved_This_Turn)
-            return false;
-
-        // Fallback for models spawned without stats. Treats them as unconstrained.
-        if (Stats == null)
-            return true;
-
-        return Stats.Is_Within_Movement_Range(Current_X, Current_Y, Target_X, Target_Y);
-    }
 
     /// <summary>
     /// Applies damage directly to this model. Returns true if the model

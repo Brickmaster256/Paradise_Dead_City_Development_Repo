@@ -44,6 +44,25 @@ public class Model_Stats_SO : ScriptableObject
     [Tooltip("Range in tiles (1 for melee, 2+ for ranged/large models).")]
     [Range(1, 8)] public int Attack_Range = 1;
 
+    // ============================================================
+    // SHOVE RULES
+    // ============================================================
+
+    [Header("Shove Rules")]
+    [Tooltip("Whether this model can shove enemies when it sprints into them.")]
+    public bool Can_Shove = true;
+
+    [Tooltip("How many tiles this model pushes an enemy when it shoves.")]
+    [Range(0, 4)] public int Shove_Distance = 1;
+
+    // ============================================================
+    // MOVEMENT RULES
+    // ============================================================
+
+    [Header("Model Movement")]
+    [Tooltip("Extra movement granted when sprinting. Total is capped at Sprint_Range_Cap.")]
+    [Range(0, 6)] public int Sprint_Bonus = 2;
+
 
     // ============================================================
     // SPECIAL RULES
@@ -68,6 +87,17 @@ public class Model_Stats_SO : ScriptableObject
     // ============================================================
     // RANGE QUERIES
     // ============================================================
+
+    /// <summary>
+    /// Maximum tiles a model can cover in a single sprint, regardless of base movement + bonus.
+    /// </summary>
+
+    public const int Sprint_Range_Cap = 6;
+
+    public int Get_Sprint_Range()
+    {
+        return Mathf.Min(Movement_Range + Sprint_Bonus, Sprint_Range_Cap);
+    }
 
     public bool Is_Within_Movement_Range(int Current_X, int Current_Y, int Target_X, int Target_Y)
     {
