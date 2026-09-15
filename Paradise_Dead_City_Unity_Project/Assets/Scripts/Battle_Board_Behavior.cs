@@ -67,9 +67,17 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     [Header("Combat References")]
     [SerializeField] private Combat_Manager Combat_Manager_Ref;
+    [Header("Camera")]
+    [SerializeField] private Camera_Controller Camera_Controller_Ref;
+
+    [Header("Settings")]
+    [SerializeField] private GameObject Settings_Panel;
 
     [Header("Map Data")]
+    [SerializeField] private Match_Config_SO Match_Config;
     [SerializeField] private Map_Data_SO Current_Map;
+    [SerializeField] private Faction_Data_SO Player_1_Faction;
+    [SerializeField] private Faction_Data_SO Player_2_Faction;
     [SerializeField] private GameObject Cover_Tile_Prefab;
     [SerializeField] private GameObject Wall_Tile_Prefab;
     [SerializeField] private GameObject Terrain_Tile_Prefab;
@@ -81,10 +89,6 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private float Altered_Drag_Offset = 1.0f;
     [SerializeField] private float Drag_Detect_Radius = 0.4f;
     [SerializeField] private float Drag_Hold_Time = 0.2f;
-
-    [Header("Factions")]
-    [SerializeField] private Faction_Data_SO Player_1_Faction;
-    [SerializeField] private Faction_Data_SO Player_2_Faction;
 
     [Header("Spawn Settings")]
     [Range(1, 8)][SerializeField] private int Spawn_Zone_Width = 5;
@@ -290,6 +294,13 @@ public class Battle_Board_Behavior : MonoBehaviour
         Generate_All_Tiles(Tile_Size);
         Assign_Team_Colors();
 
+        if (Match_Config != null)
+        {
+            Current_Map = Match_Config.Map;
+            Player_1_Faction = Match_Config.Player_1_Faction;
+            Player_2_Faction = Match_Config.Player_2_Faction;
+        }
+
         if (Current_Map != null)
             Generate_Map_Terrain();
 
@@ -425,6 +436,15 @@ public class Battle_Board_Behavior : MonoBehaviour
         return UI_Raycast_Results.Count > 0;
     }
 
+    // ============================================================
+    // SETTINGS
+    // ============================================================
+    public void On_Settings_Button_Pressed()
+    {
+        Settings_Panel.SetActive(true);
+    }
+
+
 
     // ============================================================
     // PHASE MANAGEMENT
@@ -432,6 +452,9 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Process_Current_Phase(Vector2Int Hit_Position, Ray Ray)
     {
+        if (Camera_Controller_Ref != null && Camera_Controller_Ref.Is_Manipulating)
+            return;
+
         switch (Current_Phase)
         {
             case Game_State.Player_1_Place_Spawn:
@@ -552,6 +575,14 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         if (Clicked_Model != null)
         {
+            // Ghost entry from a deactivated model still in the array. Clear
+            // it and bail so the player isn't stuck with an unselectable unit.
+            if (!Clicked_Model.gameObject.activeSelf)
+            {
+                Models[Hit_Position.x, Hit_Position.y] = null;
+                return;
+            }
+
             if (Clicked_Model.Team != Active_Player)
             {
                 Debug.Log($"Cannot select model from opposing team (Player {Clicked_Model.Team}). Active player is {Active_Player}.");
@@ -602,11 +633,16 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Deselect_Current_Model()
     {
+        // If we're mid-target-selection, bail out of that first.
+        if (Combat_Manager_Ref != null && Combat_Manager_Ref.Is_Currently_Selecting_Target())
+            Combat_Manager_Ref.Force_Clear_Combat_State();
+
+        // If a model was sprinting but hasn't moved, roll the sprint back.
+        if (Selected_Model != null)
+            Cancel_Sprint(Selected_Model);
+
         if (Selected_Model != null && Dragged_Model != null)
             Snap_Model_Back_To_Position(Dragged_Model, new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y));
-
-        if (Combat_Manager_Ref != null)
-            Combat_Manager_Ref.Force_Clear_Combat_State();
 
         Clear_Movement_Range_Highlights();
         Clear_Path_Highlights();
@@ -643,6 +679,16 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Update_Dragged_Model_Position(Ray Ray, Vector2Int Hit_Position)
     {
+        if (Camera_Controller_Ref != null && Camera_Controller_Ref.Is_Manipulating)
+        {
+            if (Dragged_Model != null)
+            {
+                Snap_Model_Back_To_Position(Dragged_Model, new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y));
+                Reset_Drag_State();
+            }
+            return;
+        }
+
         if (!Dragged_Model)
             return;
 
@@ -726,17 +772,27 @@ public class Battle_Board_Behavior : MonoBehaviour
     }
 
     /// <summary>
-    /// 1 damage per hazard tile the path crosses, including the model's
-    /// starting tile if it moved off a hazard. A model that stays put never
-    /// reaches this method, so it can rest on a hazard without taking damage.
+    /// 1 damage per hazard tile the model actually walked over. The model's
+    /// starting tile counts if it moved off a hazard. If the path ends on an
+    /// enemy tile, the model didn't step there (it was a shove that stopped
+    /// adjacent), so that tile is excluded — pushing an enemy into a hazard
+    /// doesn't damage the pusher. A model that stays put never reaches this
+    /// method, so it can rest on a hazard without taking damage.
     /// </summary>
     private void Apply_Hazard_Damage(Model_Standard_Behavior Model, List<Vector2Int> Path)
     {
-        int Hazards_Crossed = 0;
+        if (Path.Count == 0)
+            return;
 
-        foreach (Vector2Int Tile in Path)
+        Vector2Int Model_Tile = new Vector2Int(Model.Current_X, Model.Current_Y);
+        bool Was_Shove = Path[Path.Count - 1] != Model_Tile;
+
+        int Last_Index = Was_Shove ? Path.Count - 2 : Path.Count - 1;
+
+        int Hazards_Crossed = 0;
+        for (int i = 0; i <= Last_Index; i++)
         {
-            if (Get_Tile_Type_At(Tile.x, Tile.y) == Board_Modifiers.Hazard)
+            if (Get_Tile_Type_At(Path[i].x, Path[i].y) == Board_Modifiers.Hazard)
                 Hazards_Crossed++;
         }
 
@@ -864,6 +920,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         }
 
         Model.Movement_Remaining_This_Turn -= Move_Cost;
+        Model.Has_Moved_Since_Sprint = true;
 
         // Deliberately not setting Has_Ended_Turn: a model with no movement
         // left can still attack or sprint.
@@ -891,6 +948,8 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Selected.Stats.Sprint_Bonus <= 0) return false;
 
         Selected.Is_Sprinting_This_Turn = true;
+        Selected.Has_Moved_Since_Sprint = false;
+        Selected.Movement_Before_Sprint = Selected.Movement_Remaining_This_Turn;
 
         int Cap = Selected.Stats.Get_Sprint_Range();
         Selected.Movement_Remaining_This_Turn = Mathf.Min(
@@ -901,6 +960,27 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         if (Debug_Log_Movement)
             Debug.Log($"{Selected.Stats.Model_Name} is sprinting. Remaining movement: {Selected.Movement_Remaining_This_Turn}.");
+
+        return true;
+    }
+
+    /// <summary>
+    /// Rolls back a sprint if the model hasn't moved since sprinting. Returns
+    /// true if the sprint was cancelled, false if the model had already moved
+    /// (in which case the sprint is committed and can't be undone).
+    /// </summary>
+    public bool Cancel_Sprint(Model_Standard_Behavior Model)
+    {
+        if (Model == null) return false;
+        if (!Model.Is_Sprinting_This_Turn) return false;
+        if (Model.Has_Moved_Since_Sprint) return false;
+        if (Model.Stats == null) return false;
+
+        Model.Is_Sprinting_This_Turn = false;
+        Model.Movement_Remaining_This_Turn = Model.Movement_Before_Sprint;
+
+        if (Debug_Log_Movement)
+            Debug.Log($"{Model.Stats.Model_Name} sprint cancelled. Movement restored to {Model.Movement_Remaining_This_Turn}.");
 
         return true;
     }
@@ -1016,6 +1096,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         Sprinter.Movement_Remaining_This_Turn = 0;
         Sprinter.Has_Attacked_This_Turn = true;
         Sprinter.Has_Ended_Turn = true;
+        Sprinter.Has_Moved_Since_Sprint = true;
 
         if (Blocked)
         {
@@ -2124,7 +2205,7 @@ public class Battle_Board_Behavior : MonoBehaviour
             Current_Flash_Material = Movement_Range_Material;
     }
 
-    private void Refresh_Movement_Range_Highlights(Model_Standard_Behavior Model)
+    public void Refresh_Movement_Range_Highlights(Model_Standard_Behavior Model)
     {
         Display_Movement_Range(Model);
     }
@@ -2204,6 +2285,9 @@ public class Battle_Board_Behavior : MonoBehaviour
         int Max_Row = Get_Spawn_Max_Row(Player);
 
         if (Hit_Position.x < Min_Row || Hit_Position.x > Max_Row)
+            return;
+
+        if (Keyboard.current != null && Keyboard.current.leftAltKey.isPressed)
             return;
 
         if (Click_Action != null && Click_Action.WasPressedThisFrame())
@@ -2443,7 +2527,7 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Snap_Model_Back_To_Position(Model_Standard_Behavior Model, Vector2Int Position)
     {
-        Model.Set_Position(Get_Tile_Center(Position.x, Position.y));
+        Model.Set_Position(Get_Tile_Center(Position.x, Position.y), true);
     }
 
     private void Smooth_Move_To_Position(int X, int Y)
@@ -2515,6 +2599,7 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Model.Has_Attacked_This_Turn = false;
                     Model.Has_Ended_Turn = false;
                     Model.Is_Sprinting_This_Turn = false;
+                    Model.Has_Moved_Since_Sprint = false;
                 }
             }
         }

@@ -130,6 +130,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 44ce009663063be4885dfdc8bdd67920, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Chessboard
+--- !u!4 &267038574 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 6060389736486774675, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+  m_PrefabInstance: {fileID: 8073864690056085566}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &389578364
 GameObject:
   m_ObjectHideFlags: 0
@@ -142,6 +147,7 @@ GameObject:
   - component: {fileID: 389578366}
   - component: {fileID: 389578365}
   - component: {fileID: 389578368}
+  - component: {fileID: 389578369}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -267,6 +273,31 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!114 &389578369
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 389578364}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c57caade3308e444285b0fe718194b4a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Camera_Controller
+  Focus_Point: {x: 0, y: 0, z: 0}
+  Board_Transform: {fileID: 267038574}
+  Min_Distance: 6
+  Max_Distance: 30
+  Zoom_Speed: 40
+  Rotate_Speed: 0.25
+  Min_Pitch: 10
+  Max_Pitch: 89
+  Allow_Full_Yaw: 1
+  Yaw_Range_Degrees: 120
+  Reset_Key: 9
+  InputActions: {fileID: -944628639613478452, guid: 4a6743d916687234fbaab43d6a68bd8b, type: 3}
+  Action_Map_Name: Camera
 --- !u!1 &461463605
 GameObject:
   m_ObjectHideFlags: 0
@@ -1460,6 +1491,7 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1345727103}
+  - {fileID: 1860512176}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -1740,7 +1772,6 @@ RectTransform:
   - {fileID: 1461042729}
   - {fileID: 621015097}
   - {fileID: 1429123316}
-  - {fileID: 1860512176}
   m_Father: {fileID: 1345727103}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
@@ -2613,15 +2644,15 @@ RectTransform:
   m_GameObject: {fileID: 1860512175}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 0.39183176, y: 0.39183176, z: 0.39183176}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 461463606}
-  m_Father: {fileID: 1199866872}
+  m_Father: {fileID: 1139322804}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 1, y: 1}
-  m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 390.16647, y: -118.570526}
+  m_AnchorMin: {x: 1, y: 0.5}
+  m_AnchorMax: {x: 1, y: 0.5}
+  m_AnchoredPosition: {x: -101, y: -236.37495}
   m_SizeDelta: {x: 150, y: 125}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1860512177
@@ -2746,6 +2777,10 @@ PrefabInstance:
       propertyPath: Debug_Log_Movement
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      propertyPath: Camera_Controller_Ref
+      value: 
+      objectReference: {fileID: 389578369}
     - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
       propertyPath: Debug_Log_Pathfinding
       value: 0

@@ -88,9 +88,6 @@ public class Combat_Manager : MonoBehaviour
         if (Selected_Model.Has_Ended_Turn)
             return;
 
-        if (Selected_Model.Has_Attacked_This_Turn)
-            return;
-
         if (Card_UI != null)
             Card_UI.Hide_Model_Info();
 
@@ -121,27 +118,42 @@ public class Combat_Manager : MonoBehaviour
             for (int Y = 0; Y < Tile_Count_Y; Y++)
             {
                 int Distance = Mathf.Abs(X - Start_X) + Mathf.Abs(Y - Start_Y);
-
-                if (Distance <= 0 || Distance > Range)
-                    continue;
+                if (Distance <= 0 || Distance > Range) continue;
 
                 Model_Standard_Behavior Target = Battle_Board.Get_Model_At(X, Y);
 
-                if (Target != null && Target.Team != Model.Team)
+                if (Target != null && Target.gameObject.activeSelf && Target.Team != Model.Team)
                 {
-                    // Enemy model in range: valid target
                     Valid_Target_Highlights.Add(new Vector2Int(X, Y));
                     if (Valid_Target_Material != null && Tiles[X, Y] != null)
-                        Tiles[X, Y].GetComponent<MeshRenderer>().material = Valid_Target_Material;
+                    {
+                        var Renderer = Tiles[X, Y].GetComponent<MeshRenderer>();
+                        if (Renderer != null)
+                        {
+                            Renderer.material = Valid_Target_Material;
+                            // Reset alpha so the tile is fully opaque; the flash
+                            // pass will animate it from here.
+                            Color C = Renderer.material.color;
+                            C.a = 1f;
+                            Renderer.material.color = C;
+                        }
+                    }
                 }
-                else if (Target == null)
+                else if (Target == null || !Target.gameObject.activeSelf)
                 {
-                    // Empty tile in range: attack range indicator
                     Attack_Range_Highlights.Add(new Vector2Int(X, Y));
                     if (Attack_Range_Material != null && Tiles[X, Y] != null)
-                        Tiles[X, Y].GetComponent<MeshRenderer>().material = Attack_Range_Material;
+                    {
+                        var Renderer = Tiles[X, Y].GetComponent<MeshRenderer>();
+                        if (Renderer != null)
+                        {
+                            Renderer.material = Attack_Range_Material;
+                            Color C = Renderer.material.color;
+                            C.a = 1f;
+                            Renderer.material.color = C;
+                        }
+                    }
                 }
-                // Friendly model in range: leave unhighlighted
             }
         }
     }
@@ -158,14 +170,21 @@ public class Combat_Manager : MonoBehaviour
 
         Model_Standard_Behavior Target = Battle_Board.Get_Model_At(Hit_Position.x, Hit_Position.y);
 
-        if (Target == null)
-            return;
+        // Left-click on anything that isn't a valid target bails out of
+        // targeting entirely. Deselect the attacker too, so the player ends
+        // up in a clean neutral state.
+        if (Target == null || Target.Team == Attacking_Model.Team || !Valid_Target_Highlights.Contains(Hit_Position))
+        {
+            Clear_Attack_Highlights();
+            Is_Selecting_Target = false;
+            Attacking_Model = null;
 
-        if (Target.Team == Attacking_Model.Team)
-            return;
+            // Fully deselect rather than reselect, since the player clicked away.
+            if (Battle_Board != null)
+                Battle_Board.Deselect_Current_Model_Public();
 
-        if (!Valid_Target_Highlights.Contains(Hit_Position))
             return;
+        }
 
         StartCoroutine(Execute_Attack(Attacking_Model, Target));
 
@@ -255,9 +274,23 @@ public class Combat_Manager : MonoBehaviour
 
     public void Kill_Model(Model_Standard_Behavior Model)
     {
+        if (Model == null) return;
+
         Debug.Log($"{Model.Stats.Model_Name} has been slain!");
 
-        Battle_Board.Remove_Model(Model.Current_X, Model.Current_Y);
+        // Clear from every tile the model might be registered on, not just
+        // Current_X/Y. This prevents a stale Current_X/Y from leaving a ghost
+        // entry in the Models array that blocks selection.
+        int Tile_Count_X = Battle_Board.Get_Tile_Count_X();
+        int Tile_Count_Y = Battle_Board.Get_Tile_Count_Y();
+        for (int X = 0; X < Tile_Count_X; X++)
+        {
+            for (int Y = 0; Y < Tile_Count_Y; Y++)
+            {
+                if (Battle_Board.Get_Model_At(X, Y) == Model)
+                    Battle_Board.Remove_Model(X, Y);
+            }
+        }
 
         if (Battle_Board.Get_Selected_Model() == Model)
             Battle_Board.Deselect_Current_Model_Public();

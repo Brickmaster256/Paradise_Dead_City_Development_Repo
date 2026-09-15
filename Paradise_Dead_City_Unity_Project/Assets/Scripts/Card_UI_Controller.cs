@@ -407,6 +407,14 @@ public class Card_UI_Controller : MonoBehaviour
 
         Battle_Board.Notify_UI_Button_Pressed();
 
+        Model_Standard_Behavior Selected = Battle_Board.Get_Selected_Model();
+        if (Selected != null && Selected.Is_Sprinting_This_Turn)
+        {
+            if (Battle_Board.Cancel_Sprint(Selected))
+                Battle_Board.Select_Model_Public(Selected);
+            return;
+        }
+
         if (Battle_Board.Begin_Sprint())
             Hide_Model_Info();
     }

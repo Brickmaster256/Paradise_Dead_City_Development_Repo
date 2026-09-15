@@ -35,7 +35,9 @@ public class Model_Standard_Behavior : MonoBehaviour
     public int Movement_Remaining_This_Turn;
     public bool Has_Attacked_This_Turn;
     public bool Has_Ended_Turn;
+    public int Movement_Before_Sprint;
     public bool Is_Sprinting_This_Turn;
+    public bool Has_Moved_Since_Sprint;
 
     // ============================================================
     // SMOOTH MOTION
