@@ -9,8 +9,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1957324778783954481}
-  - component: {fileID: 8785093156053029917}
   - component: {fileID: -1633122976737391438}
+  - component: {fileID: 3102729670136883664}
   m_Layer: 0
   m_Name: PDC_Demon_Axillery_PH_Prefab
   m_TagString: Untagged
@@ -34,22 +34,6 @@ Transform:
   - {fileID: 3023980324918856469}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &8785093156053029917
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1180506226535730315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 002768941e8f22a4fb1fe24b9c9e9f9a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Axillary_Behavior
-  Team: 0
-  Current_X: 0
-  Current_Y: 0
-  Type: 3
 --- !u!23 &-1633122976737391438
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -99,6 +83,27 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!114 &3102729670136883664
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1180506226535730315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32ba38b4df4700b47ad96b01b05cb3b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Model_Standard_Behavior
+  Team: 0
+  Current_X: 0
+  Current_Y: 0
+  Type: 3
+  Stats: {fileID: 0}
+  Current_Health: 0
+  Has_Moved_This_Turn: 0
+  Has_Attacked_This_Turn: 0
+  Movement_Lerp_Speed: 10
 --- !u!1 &1181324280697744827
 GameObject:
   m_ObjectHideFlags: 0

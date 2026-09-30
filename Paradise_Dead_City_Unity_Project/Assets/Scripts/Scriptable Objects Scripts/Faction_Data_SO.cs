@@ -3,6 +3,10 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "New Faction", menuName = "Scriptable Objects/Faction Data")]
 public class Faction_Data_SO : ScriptableObject
 {
+    // ============================================================
+    // SERIALIZED FIELDS
+    // ============================================================
+
     public string Faction_Name;
 
     [Header("Model Prefabs")]
@@ -33,7 +37,11 @@ public class Faction_Data_SO : ScriptableObject
     public Sprite Axillary_Icon;
     public Sprite Death_Head_Icon;
 
-    // Helper method to get the prefab based on the model type
+
+    // ============================================================
+    // LOOKUPS
+    // ============================================================
+
     public GameObject Get_Prefab_By_Type(Model_Type Type)
     {
         return Type switch
@@ -47,7 +55,6 @@ public class Faction_Data_SO : ScriptableObject
         };
     }
 
-    // Helper method to get stats based on the model type
     public Model_Stats_SO Get_Stats_By_Type(Model_Type Type)
     {
         return Type switch
@@ -61,13 +68,6 @@ public class Faction_Data_SO : ScriptableObject
         };
     }
 
-    // Get the faction icon
-    public Sprite Get_Faction_Icon()
-    {
-        return Faction_Icon;
-    }
-
-    // Get model icon based on type
     public Sprite Get_Model_Icon(Model_Type Type)
     {
         return Type switch
@@ -79,5 +79,10 @@ public class Faction_Data_SO : ScriptableObject
             Model_Type.DeathHead => Death_Head_Icon,
             _ => null
         };
+    }
+
+    public Sprite Get_Faction_Icon()
+    {
+        return Faction_Icon;
     }
 }
