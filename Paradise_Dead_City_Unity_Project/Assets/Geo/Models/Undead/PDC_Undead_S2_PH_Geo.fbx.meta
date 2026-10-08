@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: a3019ced998a63c469f78e31fbf3b9e8
+guid: 2dfec0c5e97e3164ba8d8d70c40af3a4
 ModelImporter:
   serializedVersion: 24200
   internalIDToNameTable: []
@@ -7,8 +7,13 @@ ModelImporter:
   - first:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
-      name: Cyborg_Color
-    second: {fileID: 2100000, guid: 8088ea88a48e56b42bfa3c9b3391baed, type: 2}
+      name: Undead_Color
+    second: {fileID: 2100000, guid: 90aada7c791c2844c8183b6141f19dca, type: 2}
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: Undead_S2_Icon
+    second: {fileID: 2100000, guid: 147796128286e3c479e9bd481527de02, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0

@@ -76,17 +76,12 @@ public class Combat_Manager : MonoBehaviour
 
         Model_Standard_Behavior Selected_Model = Battle_Board.Get_Selected_Model();
 
-        if (Selected_Model == null)
-            return;
+        if (Selected_Model == null) return;
+        if (Selected_Model.Is_Sprinting_This_Turn) return;
+        if (Selected_Model.Team != Battle_Board.Get_Active_Player()) return;
+        if (Selected_Model.Has_Ended_Turn) return;
 
-        if (Selected_Model.Is_Sprinting_This_Turn)
-            return;
-
-        if (Selected_Model.Team != Battle_Board.Get_Active_Player())
-            return;
-
-        if (Selected_Model.Has_Ended_Turn)
-            return;
+        Battle_Board.Cancel_Active_Drag();
 
         if (Card_UI != null)
             Card_UI.Hide_Model_Info();
@@ -96,9 +91,6 @@ public class Combat_Manager : MonoBehaviour
         Attacking_Model = Selected_Model;
         Is_Selecting_Target = true;
         Show_Attack_Range(Selected_Model);
-
-        if (Selected_Model.Is_Sprinting_This_Turn)
-            return;
     }
 
     private void Show_Attack_Range(Model_Standard_Behavior Model)
@@ -108,6 +100,12 @@ public class Combat_Manager : MonoBehaviour
         int Start_X = Model.Current_X;
         int Start_Y = Model.Current_Y;
         int Range = Model.Stats.Attack_Range;
+
+        bool Requires_LOS = Model.Stats.Is_Ranged;
+        bool Is_Melee = !Model.Stats.Is_Ranged;
+
+        Vector2Int Attacker_Pos = new Vector2Int(Start_X, Start_Y);
+        bool Attacker_High = Battle_Board.Is_Tile_Elevated(Start_X, Start_Y);
 
         var Tiles = Battle_Board.Get_Tiles();
         int Tile_Count_X = Battle_Board.Get_Tile_Count_X();
@@ -120,19 +118,32 @@ public class Combat_Manager : MonoBehaviour
                 int Distance = Mathf.Abs(X - Start_X) + Mathf.Abs(Y - Start_Y);
                 if (Distance <= 0 || Distance > Range) continue;
 
-                Model_Standard_Behavior Target = Battle_Board.Get_Model_At(X, Y);
+                Vector2Int Tile_Pos = new Vector2Int(X, Y);
 
-                if (Target != null && Target.gameObject.activeSelf && Target.Team != Model.Team)
+                if (Requires_LOS && !Battle_Board.Has_Line_Of_Sight(Attacker_Pos, Tile_Pos))
+                    continue;
+
+                Model_Standard_Behavior Target = Battle_Board.Get_Model_At(X, Y);
+                bool Tile_Occupied_By_Enemy = Target != null
+                                              && Target.gameObject.activeSelf
+                                              && Target.Team != Model.Team;
+
+                if (Is_Melee && Tile_Occupied_By_Enemy)
                 {
-                    Valid_Target_Highlights.Add(new Vector2Int(X, Y));
+                    bool Target_High = Battle_Board.Is_Tile_Elevated(X, Y);
+                    if (Target_High && !Attacker_High)
+                        continue;
+                }
+
+                if (Tile_Occupied_By_Enemy)
+                {
+                    Valid_Target_Highlights.Add(Tile_Pos);
                     if (Valid_Target_Material != null && Tiles[X, Y] != null)
                     {
                         var Renderer = Tiles[X, Y].GetComponent<MeshRenderer>();
                         if (Renderer != null)
                         {
                             Renderer.material = Valid_Target_Material;
-                            // Reset alpha so the tile is fully opaque; the flash
-                            // pass will animate it from here.
                             Color C = Renderer.material.color;
                             C.a = 1f;
                             Renderer.material.color = C;
@@ -141,7 +152,7 @@ public class Combat_Manager : MonoBehaviour
                 }
                 else if (Target == null || !Target.gameObject.activeSelf)
                 {
-                    Attack_Range_Highlights.Add(new Vector2Int(X, Y));
+                    Attack_Range_Highlights.Add(Tile_Pos);
                     if (Attack_Range_Material != null && Tiles[X, Y] != null)
                     {
                         var Renderer = Tiles[X, Y].GetComponent<MeshRenderer>();
@@ -170,9 +181,7 @@ public class Combat_Manager : MonoBehaviour
 
         Model_Standard_Behavior Target = Battle_Board.Get_Model_At(Hit_Position.x, Hit_Position.y);
 
-        // Left-click on anything that isn't a valid target bails out of
-        // targeting entirely. Deselect the attacker too, so the player ends
-        // up in a clean neutral state.
+
         if (Target == null || Target.Team == Attacking_Model.Team || !Valid_Target_Highlights.Contains(Hit_Position))
         {
             Clear_Attack_Highlights();
@@ -185,6 +194,9 @@ public class Combat_Manager : MonoBehaviour
 
             return;
         }
+
+        if (Battle_Board != null)
+            Battle_Board.Cancel_Active_Drag();
 
         StartCoroutine(Execute_Attack(Attacking_Model, Target));
 
@@ -218,9 +230,12 @@ public class Combat_Manager : MonoBehaviour
         Debug.Log($"=== COMBAT: {Attacker.Stats.Model_Name} attacks {Defender.Stats.Model_Name} ===");
 
         int Hit_Roll = Roll_D6();
-        int Needed_To_Hit = Attacker.Stats.Attack_Skill;
+        int Base_Target = Attacker.Stats.Attack_Skill;
+        int Modifier = Get_Attack_Modifier(Attacker, Defender);
+        int Needed_To_Hit = Mathf.Clamp(Base_Target - Modifier, 2, 6);
 
-        Debug.Log($"Hit Roll: {Hit_Roll} (needed {Needed_To_Hit}+)");
+        string Mod_Label = Modifier > 0 ? "advantage" : Modifier < 0 ? "disadvantage" : "neutral";
+        Debug.Log($"Hit Roll: {Hit_Roll} (needed {Needed_To_Hit}+, base {Base_Target}, {Mod_Label})");
 
         if (Hit_Roll < Needed_To_Hit)
         {
@@ -328,6 +343,84 @@ public class Combat_Manager : MonoBehaviour
     private static int Roll_D6()
     {
         return Random.Range(D6_Min, D6_Max_Exclusive);
+    }
+
+    // ============================================================
+    // ATTACK MODIFIERS
+    // ============================================================
+
+    /// <summary>
+    /// Returns +1 if the attacker has net advantage, -1 if net
+    /// disadvantage, 0 if neutral. Sources do not stack — one or more
+    /// advantages with zero disadvantages is still +1, and any mix of
+    /// both cancels to 0.
+    ///
+    /// Instantaneous sources (elevation, cover) apply only to this attack.
+    /// Persistent sources (defender vulnerable, attacker vulnerable) are
+    /// state flags on the model and were set by Battle_Board_Behavior.
+    ///
+    /// Elevation advantage is ranged-only, per design — a melee attacker
+    /// on elevation gains nothing. Melee elevation is instead handled as
+    /// a targeting restriction in Show_Attack_Range.
+    /// </summary>
+    private int Get_Attack_Modifier(Model_Standard_Behavior Attacker, Model_Standard_Behavior Defender)
+    {
+        int Advantage = 0;
+        int Disadvantage = 0;
+
+        bool Attacker_High = Battle_Board.Is_Tile_Elevated(Attacker.Current_X, Attacker.Current_Y);
+        bool Defender_High = Battle_Board.Is_Tile_Elevated(Defender.Current_X, Defender.Current_Y);
+
+        // Elevation — ranged only.
+        if (Attacker.Stats.Is_Ranged)
+        {
+            if (Attacker_High && !Defender_High) Advantage++;
+            if (Defender_High && !Attacker_High) Disadvantage++;
+        }
+
+        // Cover between attacker and defender.
+        if (Cover_Between(Attacker, Defender))
+            Disadvantage++;
+
+        // Persistent state.
+        if (Defender.Is_Vulnerable) Advantage++;
+        if (Attacker.Is_Vulnerable) Disadvantage++;
+
+        if (Advantage > 0 && Disadvantage == 0) return +1;
+        if (Disadvantage > 0 && Advantage == 0) return -1;
+        return 0;
+    }
+
+    /// <summary>
+    /// True if any strictly-intermediate tile on the straight cardinal
+    /// line between attacker and defender is Cover. Only meaningful for
+    /// ranged attacks — melee has no intervening tiles — but harmless
+    /// to call for melee too.
+    /// </summary>
+    private bool Cover_Between(Model_Standard_Behavior Attacker, Model_Standard_Behavior Defender)
+    {
+        Vector2Int From = new Vector2Int(Attacker.Current_X, Attacker.Current_Y);
+        Vector2Int To = new Vector2Int(Defender.Current_X, Defender.Current_Y);
+
+        if (From == To) return false;
+        if (From.x != To.x && From.y != To.y) return false;   // diagonal — shouldn't happen for ranged
+
+        if (From.x == To.x)
+        {
+            int Step = To.y > From.y ? 1 : -1;
+            for (int y = From.y + Step; y != To.y; y += Step)
+                if (Battle_Board.Get_Tile_Type_At(From.x, y) == Board_Modifiers.Cover)
+                    return true;
+        }
+        else
+        {
+            int Step = To.x > From.x ? 1 : -1;
+            for (int x = From.x + Step; x != To.x; x += Step)
+                if (Battle_Board.Get_Tile_Type_At(x, From.y) == Board_Modifiers.Cover)
+                    return true;
+        }
+
+        return false;
     }
 
     // ============================================================

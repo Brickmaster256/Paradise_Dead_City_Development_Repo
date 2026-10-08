@@ -140,7 +140,13 @@ MonoBehaviour:
   Y_Offset: 0.51
   Board_Center: {x: 0, y: 0, z: 0}
   Card_UI: {fileID: 0}
+  Combat_Manager_Ref: {fileID: 0}
+  Camera_Controller_Ref: {fileID: 0}
+  Settings_Panel: {fileID: 0}
+  Match_Config: {fileID: 0}
   Current_Map: {fileID: 11400000, guid: ce992d7ca3368964894a5280963a3543, type: 2}
+  Player_1_Faction: {fileID: 11400000, guid: 63668a7c46c18774faa37a5ee738e004, type: 2}
+  Player_2_Faction: {fileID: 11400000, guid: a4a2d948182e5f8478f31cea887187b6, type: 2}
   Cover_Tile_Prefab: {fileID: 5950313440568233867, guid: db9108c1cfa73be409f7a380137362c8, type: 3}
   Wall_Tile_Prefab: {fileID: 5950313440568233867, guid: 999ee9dba6bf1a94b9a6a96de8aa7c63, type: 3}
   Terrain_Tile_Prefab: {fileID: 5950313440568233867, guid: 31275e1bdfc3b9d46ade27e0a8dd7a6c, type: 3}
@@ -150,22 +156,39 @@ MonoBehaviour:
   Altered_Drag_Offset: 4
   Drag_Detect_Radius: 2
   Drag_Hold_Time: 0.1
-  Player_1_Faction: {fileID: 11400000, guid: 63668a7c46c18774faa37a5ee738e004, type: 2}
-  Player_2_Faction: {fileID: 11400000, guid: a4a2d948182e5f8478f31cea887187b6, type: 2}
+  Board_Move_Duration: 0.4
+  Board_Follow_Speed: 20
+  Board_Ease_Discrete_Moves: 1
   Spawn_Zone_Width: 5
   Spawn_Zone_Depth: 2
   Valid_Spawn_Tile_Locations_Material: {fileID: 2100000, guid: 8e76fe92388c7c14f921513316c00bf6, type: 2}
   Model_Placement_Material: {fileID: 2100000, guid: 4fb800698383e5a4c93e5591dfccb19d, type: 2}
   Movement_Range_Material: {fileID: 2100000, guid: b483d9de372e65247ba333d1389eab84, type: 2}
-  Primary_Path_Material: {fileID: 2100000, guid: 617b756f418fb5244914ba87d7ab0ec2, type: 2}
-  Secondary_Path_Material: {fileID: 2100000, guid: 046997f5cc459b5479906f152fbf268a, type: 2}
-  Tertiary_Path_Material: {fileID: 2100000, guid: c8dc11d6e79547d4b8bc6b0152f4415b, type: 2}
-  Quaternary_Path_Material: {fileID: 2100000, guid: 600a776ecc92c634694907b829a2e80a, type: 2}
   Hazard_Path_Material: {fileID: 2100000, guid: fba4b9d32bdf68d479bf86a2e93adc14, type: 2}
+  Path_Materials:
+  - {fileID: 2100000, guid: 617b756f418fb5244914ba87d7ab0ec2, type: 2}
+  - {fileID: 2100000, guid: 046997f5cc459b5479906f152fbf268a, type: 2}
+  - {fileID: 2100000, guid: c8dc11d6e79547d4b8bc6b0152f4415b, type: 2}
+  - {fileID: 2100000, guid: 600a776ecc92c634694907b829a2e80a, type: 2}
+  - {fileID: 2100000, guid: 65c58a7755101af49937378db6b25afb, type: 2}
+  - {fileID: 2100000, guid: 601a2ee56c7984143ba629eec36721f6, type: 2}
+  Path_Slot_Count: 6
+  Shove_Target_Material: {fileID: 2100000, guid: eb0449086972eb442a8304b7ea56a011, type: 2}
+  Shove_Destination_Material: {fileID: 2100000, guid: c0bbb4494c3b0c44792b02b8cdf01c7b, type: 2}
+  Shove_Blocked_Material: {fileID: 2100000, guid: 7e304cac097740e4f95e4f602f03ce52, type: 2}
+  Max_Shove_Paths_Shown: 6
+  Show_Alternate_Routes_Per_Direction: 1
+  Prefer_Hazard_Free_Routes: 1
   Flash_Speed: 3
   Flash_Min_Alpha: 0.3
   Flash_Max_Alpha: 0.5
   InputActions: {fileID: -944628639613478452, guid: 4a6743d916687234fbaab43d6a68bd8b, type: 3}
+  Debug_Log_Input: 0
+  Debug_Log_Pathfinding: 0
+  Debug_Log_Movement: 0
+  Debug_Log_Placement: 0
+  Debug_Log_Shove: 0
+  Debug_Log_Path_Materials: 0
 --- !u!1 &8267950992274266666
 GameObject:
   m_ObjectHideFlags: 0

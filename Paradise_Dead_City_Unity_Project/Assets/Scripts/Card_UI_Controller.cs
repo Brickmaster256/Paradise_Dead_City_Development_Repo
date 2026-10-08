@@ -348,24 +348,27 @@ public class Card_UI_Controller : MonoBehaviour
         if (Attack_Button == null && Sprint_Button == null)
             return;
 
-        bool Is_Mine = Current_Displayed_Model != null
-                       && Current_Displayed_Model.Team == Active_Player;
+        Model_Standard_Behavior Displayed = Current_Displayed_Model;
 
-        bool Can_Act = Is_Mine
-                       && !Current_Displayed_Model.Has_Attacked_This_Turn
-                       && !Current_Displayed_Model.Has_Ended_Turn;
+        if (Displayed == null || Displayed.Team != Active_Player)
+        {
+            if (Attack_Button != null) Attack_Button.interactable = false;
+            if (Sprint_Button != null) Sprint_Button.interactable = false;
+            return;
+        }
 
-        bool Can_Attack = Can_Act && !Current_Displayed_Model.Is_Sprinting_This_Turn;
-        bool Can_Sprint = Can_Act && !Current_Displayed_Model.Is_Sprinting_This_Turn;
+        bool Can_Act = !Displayed.Has_Attacked_This_Turn
+                    && !Displayed.Has_Ended_Turn;
+
+        // Attack and sprint are mutually exclusive with an active sprint.
+        bool Is_Sprinting = Displayed.Is_Sprinting_This_Turn;
 
         if (Attack_Button != null)
-            Attack_Button.interactable = Can_Attack;
+            Attack_Button.interactable = Can_Act && !Is_Sprinting;
 
+        // Sprint button stays clickable while sprinting so the player can cancel.
         if (Sprint_Button != null)
-            Sprint_Button.interactable = Can_Sprint;
-
-        string Name = Current_Displayed_Model != null
-            ? Current_Displayed_Model.Stats.Model_Name : "(none)";
+            Sprint_Button.interactable = Can_Act;
     }
 
     /// <summary>

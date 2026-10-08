@@ -90,6 +90,18 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private float Drag_Detect_Radius = 0.4f;
     [SerializeField] private float Drag_Hold_Time = 0.2f;
 
+    [Header("Smooth Motion")]
+    [Tooltip("Seconds for a discrete board move (step / shove glide). " +
+         "Pushed to every model at spawn time, overriding the prefab value.")]
+    [SerializeField] private float Board_Move_Duration = 1.0f;
+
+    [Tooltip("Exponential cursor-follow speed during drag. Higher is snappier.")]
+    [SerializeField] private float Board_Follow_Speed = 15f;
+
+    [Tooltip("If true, discrete moves ease in and out (SmoothStep). " +
+             "If false, linear.")]
+    [SerializeField] private bool Board_Ease_Discrete_Moves = true;
+
     [Header("Spawn Settings")]
     [Range(1, 8)][SerializeField] private int Spawn_Zone_Width = 5;
     [Range(1, 4)][SerializeField] private int Spawn_Zone_Depth = 2;
@@ -700,7 +712,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         {
             Vector3 Mouse_Position = Ray.GetPoint(Distance);
             float Current_Drag_Offset = Calculate_Drag_Offset(Mouse_Position);
-            Dragged_Model.Set_Position(Mouse_Position + Vector3.up * Current_Drag_Offset);
+            Dragged_Model.Follow_Position(Mouse_Position + Vector3.up * Current_Drag_Offset);
         }
 
         if (Shove_Target_Highlights.Contains(Hit_Position))
@@ -837,6 +849,27 @@ public class Battle_Board_Behavior : MonoBehaviour
         Current_Hold_Time = 0f;
     }
 
+    /// <summary>
+    /// Aborts any active drag, gliding a dragged model back to its grid tile,
+    /// and clears the hold timer. Safe to call at any time.
+    ///
+    /// Combat_Manager calls this when attack targeting begins. Without it, the
+    /// Is_Holding flag left over from the initial selection click survives into
+    /// combat, and the held attack-target click gets reinterpreted as a drag —
+    /// the attacker lunges toward the enemy cursor position.
+    /// </summary>
+    public void Cancel_Active_Drag()
+    {
+        if (Dragged_Model != null)
+        {
+            Snap_Model_Back_To_Position(
+                Dragged_Model,
+                new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y));
+        }
+
+        Reset_Drag_State();
+    }
+
     private float Calculate_Drag_Offset(Vector3 Mouse_Position)
     {
         foreach (Model_Standard_Behavior Model in Models)
@@ -922,8 +955,8 @@ public class Battle_Board_Behavior : MonoBehaviour
         Model.Movement_Remaining_This_Turn -= Move_Cost;
         Model.Has_Moved_Since_Sprint = true;
 
-        // Deliberately not setting Has_Ended_Turn: a model with no movement
-        // left can still attack or sprint.
+        if (Model.Is_Sprinting_This_Turn)
+            Model.Apply_Vulnerability();
 
         Models[X, Y] = Model;
         Models[Previous_Position.x, Previous_Position.y] = null;
@@ -995,6 +1028,11 @@ public class Battle_Board_Behavior : MonoBehaviour
     /// direction of approach. The defender is pushed Shove_Distance tiles
     /// in the same direction, or takes 1 damage if the push is blocked.
     /// Either way, the sprinter ends its turn.
+    ///
+    /// The sprinter's transform is always re-anchored, even when it didn't
+    /// need to move in grid terms, using the smooth glide. During a drag the
+    /// model's transform follows the cursor, so a shove that doesn't change
+    /// grid tiles would otherwise leave the model floating.
     /// </summary>
     private bool Try_Shove_Model(
         Model_Standard_Behavior Sprinter,
@@ -1084,14 +1122,20 @@ public class Battle_Board_Behavior : MonoBehaviour
             }
         }
 
+        // Update the sprinter's grid position if it moved to a new tile.
         if (Stop_Position != Sprinter_Start)
         {
             Models[Sprinter_Start.x, Sprinter_Start.y] = null;
             Models[Stop_Position.x, Stop_Position.y] = Sprinter;
             Sprinter.Current_X = Stop_Position.x;
             Sprinter.Current_Y = Stop_Position.y;
-            Sprinter.Set_Position(Get_Tile_Center(Stop_Position.x, Stop_Position.y), false);
         }
+
+        // Re-anchor the sprinter's transform UNCONDITIONALLY with the smooth
+        // glide (Force = false). This handles the case where Stop_Position ==
+        // Sprinter_Start and the model was left at cursor height during the
+        // drag — instead of teleporting, it glides down to the tile center.
+        Sprinter.Set_Position(Get_Tile_Center(Sprinter.Current_X, Sprinter.Current_Y), false);
 
         Sprinter.Movement_Remaining_This_Turn = 0;
         Sprinter.Has_Attacked_This_Turn = true;
@@ -1102,6 +1146,10 @@ public class Battle_Board_Behavior : MonoBehaviour
         {
             if (Debug_Log_Shove)
                 Debug.Log($"Shove blocked! {Defender.Stats.Model_Name} takes 1 damage.");
+
+            Defender.Set_Position(Get_Tile_Center(Defender.Current_X, Defender.Current_Y), false);
+
+            Defender.Apply_Vulnerability();
 
             bool Survived = Defender.Take_Damage(1);
             if (!Survived)
@@ -1118,14 +1166,41 @@ public class Battle_Board_Behavior : MonoBehaviour
         {
             Vector2Int Final = Push_Path[Push_Path.Count - 1];
 
+            bool Was_Elevated = Is_Tile_Elevated(Defender_Position.x, Defender_Position.y);
+            bool Now_Elevated = Is_Tile_Elevated(Final.x, Final.y);
+            bool Fell_Off_Elevation = Was_Elevated && !Now_Elevated;
+
             Models[Defender_Position.x, Defender_Position.y] = null;
             Models[Final.x, Final.y] = Defender;
             Defender.Current_X = Final.x;
             Defender.Current_Y = Final.y;
             Defender.Set_Position(Get_Tile_Center(Final.x, Final.y), false);
 
-            if (Debug_Log_Shove)
+            if (Fell_Off_Elevation)
+            {
+                if (Debug_Log_Shove)
+                    Debug.Log($"{Defender.Stats.Model_Name} fell off elevation. 1 damage + vulnerability.");
+
+                Defender.Apply_Vulnerability();
+
+                bool Survived = Defender.Take_Damage(1);
+                if (!Survived)
+                {
+                    if (Combat_Manager_Ref != null)
+                        Combat_Manager_Ref.Kill_Model(Defender);
+                }
+                else if (Card_UI != null)
+                {
+                    Card_UI.Refresh_Displayed_Health(Defender);
+                }
+
+                if (Debug_Log_Shove)
+                    Debug.Log($"{Sprinter.Stats.Model_Name} shoves {Defender.Stats.Model_Name} off elevation to {Final}.");
+            }
+            else if (Debug_Log_Shove)
+            {
                 Debug.Log($"{Sprinter.Stats.Model_Name} shoves {Defender.Stats.Model_Name} from {Defender_Position} to {Final}.");
+            }
         }
 
         return true;
@@ -1232,6 +1307,12 @@ public class Battle_Board_Behavior : MonoBehaviour
     /// One BFS per cardinal approach direction. If alternate routes are
     /// enabled, every shortest route to each stop tile is kept; otherwise
     /// only the single shortest route per direction.
+    ///
+    /// The Stop_Tile == Start case is special-cased: the sprinter doesn't
+    /// need to move to be adjacent on that side, so the "path" is just the
+    /// start tile itself. Without this, the straight-ahead shove direction
+    /// is silently dropped because Find_All_Paths returns empty when
+    /// Start == Target.
     /// </summary>
     private List<List<Vector2Int>> Generate_Shove_Path_Candidates(
         Vector2Int Start,
@@ -1240,7 +1321,7 @@ public class Battle_Board_Behavior : MonoBehaviour
     {
         var Result = new List<List<Vector2Int>>();
 
-        if (Start == Enemy_Position || Max_Distance < 1)
+        if (Start == Enemy_Position || Max_Distance < 0)
             return Result;
 
         foreach (Vector2Int Dir in Cardinal_Directions)
@@ -1260,17 +1341,34 @@ public class Battle_Board_Behavior : MonoBehaviour
 
             List<List<Vector2Int>> Sub_Paths;
 
-            if (Show_Alternate_Routes_Per_Direction)
+            if (Stop_Tile == Start)
             {
-                Sub_Paths = Find_All_Paths(Start, Stop_Tile, Max_Distance - 1);
+                // Sprinter is already adjacent on this side. The "path" is a
+                // single tile (the sprinter's own tile). Append Enemy_Position
+                // below to get [(Start), Enemy].
+                Sub_Paths = new List<List<Vector2Int>>
+            {
+                new List<Vector2Int> { Start }
+            };
+            }
+            else if (Show_Alternate_Routes_Per_Direction)
+            {
+                // Use the full budget. Try_Shove_Model charges only the
+                // Manhattan distance to the stop tile, and the shove itself
+                // is free, so a stop tile exactly Max_Distance away is legal.
+                Sub_Paths = Find_All_Paths(Start, Stop_Tile, Max_Distance);
             }
             else
             {
                 Sub_Paths = new List<List<Vector2Int>>();
-                List<Vector2Int> Single = Find_Shortest_Path(Start, Stop_Tile, Max_Distance - 1);
+                List<Vector2Int> Single = Find_Shortest_Path(Start, Stop_Tile, Max_Distance);
                 if (Single.Count > 0)
                     Sub_Paths.Add(Single);
             }
+
+            if (Debug_Log_Pathfinding)
+                Debug.Log($"[ShoveGen] Dir={Dir}, Start={Start}, StopTile={Stop_Tile}, " +
+                          $"reachable={Sub_Paths.Count}");
 
             foreach (var Sub_Path in Sub_Paths)
             {
@@ -1610,7 +1708,12 @@ public class Battle_Board_Behavior : MonoBehaviour
     private void Switch_To_Next_Path()
     {
         if (All_Paths_To_Target.Count <= 1 || Current_Hover_Target == No_Tile)
+        {
+            if (Debug_Log_Pathfinding)
+                Debug.Log($"[Cycle] Ignored. Paths={All_Paths_To_Target.Count}, " +
+                          $"HoverTarget={Current_Hover_Target}.");
             return;
+        }
 
         Current_Path_Index = (Current_Path_Index + 1) % All_Paths_To_Target.Count;
 
@@ -2287,9 +2390,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Hit_Position.x < Min_Row || Hit_Position.x > Max_Row)
             return;
 
-        if (Keyboard.current != null && Keyboard.current.leftAltKey.isPressed)
-            return;
-
         if (Click_Action != null && Click_Action.WasPressedThisFrame())
             Place_Spawn_Tile_At(Hit_Position, Player);
     }
@@ -2488,6 +2588,9 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model.Stats != null)
             Model.Current_Health = Model.Stats.Health;
 
+        // Board-level tuning wins over whatever the prefab was saved with.
+        Model.Configure_Motion(Board_Move_Duration, Board_Follow_Speed, Board_Ease_Discrete_Moves);
+
         Apply_Team_Material(Model, Team_Mat);
         return Model;
     }
@@ -2502,14 +2605,19 @@ public class Battle_Board_Behavior : MonoBehaviour
 
             if (Materials.Length >= 2)
             {
+                bool Changed = false;
+
                 for (int i = 0; i < Materials.Length; i++)
                 {
                     if (Materials[i] != null && Materials[i].name.Contains("Base"))
                     {
                         Materials[i] = new Material(Team_Mat);
-                        Renderer.materials = Materials;
+                        Changed = true;
                     }
                 }
+
+                if (Changed)
+                    Renderer.materials = Materials;
             }
             else if (Materials.Length == 1)
             {
@@ -2527,7 +2635,7 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Snap_Model_Back_To_Position(Model_Standard_Behavior Model, Vector2Int Position)
     {
-        Model.Set_Position(Get_Tile_Center(Position.x, Position.y), true);
+        Model.Set_Position(Get_Tile_Center(Position.x, Position.y), false);
     }
 
     private void Smooth_Move_To_Position(int X, int Y)
@@ -2600,6 +2708,14 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Model.Has_Ended_Turn = false;
                     Model.Is_Sprinting_This_Turn = false;
                     Model.Has_Moved_Since_Sprint = false;
+
+                    // Decrement vulnerability at the start of the owner's turn.
+                    // Duration 1 = "exploitable for the rest of the current
+                    // turn" (i.e. the vulnerable unit's owner hasn't started
+                    // their turn yet). Duration 2 = survives one full owner
+                    // turn, exploitable again on the next enemy turn.
+                    if (Model.Vulnerability_Turns_Remaining > 0)
+                        Model.Vulnerability_Turns_Remaining--;
                 }
             }
         }
@@ -2709,6 +2825,94 @@ public class Battle_Board_Behavior : MonoBehaviour
             return Board_Modifiers.None;
 
         return Map_Tiles[X, Y];
+    }
+
+    public bool Is_Tile_Elevated(int X, int Y)
+    {
+        if (X < 0 || X >= Tile_Count_X || Y < 0 || Y >= Tile_Count_Y)
+            return false;
+
+        if (Current_Map == null)
+            return false;
+
+        return Current_Map.Is_Elevated(X, Y);
+    }
+
+    // ============================================================
+    // LINE OF SIGHT
+    // ============================================================
+
+    /// <summary>
+    /// True if the straight line between the centers of the two tiles
+    /// is not blocked by a wall. Used by ranged attacks; melee ignores
+    /// it because range 1 can never have an intervening tile.
+    ///
+    /// Uses fine sampling rather than Bresenham so diagonal squeezes
+    /// through wall corners are caught by the explicit corner rule
+    /// below: if a step is diagonal and BOTH perpendicular neighbors
+    /// are walls, the line is blocked even though the line never
+    /// enters either of those tiles.
+    ///
+    /// Neither endpoint blocks sight. Only intermediate tiles do.
+    /// </summary>
+    public bool Has_Line_Of_Sight(Vector2Int From, Vector2Int To)
+    {
+        if (From == To) return true;
+
+        Vector2 From_Center = new Vector2(From.x + 0.5f, From.y + 0.5f);
+        Vector2 To_Center = new Vector2(To.x + 0.5f, To.y + 0.5f);
+        Vector2 Delta = To_Center - From_Center;
+        float Distance = Delta.magnitude;
+
+        // Step small enough that no tile transition can be skipped.
+        const float Step = 0.1f;
+        int Samples = Mathf.Max(1, Mathf.CeilToInt(Distance / Step));
+
+        Vector2Int Previous_Tile = From;
+
+        for (int i = 1; i < Samples; i++)
+        {
+            float t = i / (float)Samples;
+            Vector2 Point = From_Center + Delta * t;
+            Vector2Int Tile = new Vector2Int(Mathf.FloorToInt(Point.x), Mathf.FloorToInt(Point.y));
+
+            if (Tile == Previous_Tile) continue;
+
+            // Diagonal step: block if both perpendicular neighbors are walls.
+            // This catches the "peek through the gap between two wall corners"
+            // case that pure line-walking would allow.
+            if (Tile.x != Previous_Tile.x && Tile.y != Previous_Tile.y)
+            {
+                Vector2Int Corner_A = new Vector2Int(Previous_Tile.x, Tile.y);
+                Vector2Int Corner_B = new Vector2Int(Tile.x, Previous_Tile.y);
+
+                if (Blocks_Line_Of_Sight(Corner_A) && Blocks_Line_Of_Sight(Corner_B))
+                    return false;
+            }
+
+            // Intermediate tiles block. The target tile itself does not.
+            if (Tile != To && Blocks_Line_Of_Sight(Tile))
+                return false;
+
+            Previous_Tile = Tile;
+        }
+
+        return true;
+    }
+
+    private bool Blocks_Line_Of_Sight(Vector2Int Tile)
+    {
+        if (Tile.x < 0 || Tile.x >= Tile_Count_X || Tile.y < 0 || Tile.y >= Tile_Count_Y)
+            return true;
+
+        Board_Modifiers Type = Map_Tiles[Tile.x, Tile.y];
+        return Type == Board_Modifiers.Wall;
+
+        // If you later decide cover also obstructs ranged fire, add:
+        //   || Type == Board_Modifiers.Cover
+        // The placement of this rule is deliberate: melee movement uses
+        // Is_Tile_Passable, which treats Cover as blocking. LOS uses its
+        // own query so you can tune the two independently.
     }
 
 
