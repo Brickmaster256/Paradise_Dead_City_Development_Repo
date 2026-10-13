@@ -77,11 +77,20 @@ public class Model_Stats_SO : ScriptableObject
     // SPECIAL ABILITIES
     // ============================================================
 
-    [Header("Model Special Abilities")]
     // Placeholder flag for a future ability system. Currently only
     // used by the card UI to decide whether to show the "Special
     // Ability" description line.
-    public bool Has_Ability = false;
+    public enum Ability_Kind
+    {
+        None,
+        Passive,
+        Active
+    }
+
+    [Header("Model Special Abilities")]
+    [Tooltip("None = no ability. Passive = always on, no button. " +
+             "Active = player must press the Ability button.")]
+    public Ability_Kind Ability = Ability_Kind.None;
 
 
     // ============================================================

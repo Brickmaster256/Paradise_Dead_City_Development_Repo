@@ -84,6 +84,11 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private GameObject Hazard_Tile_Prefab;
     [SerializeField] private float Terrain_Tile_Y_Offset = 0.1f;
 
+    [Header("Status")]
+    [Tooltip("Central registry of Status_Definition_SO assets. Passed to " +
+             "every model at spawn so statuses can look up their visuals.")]
+    [SerializeField] private Status_Registry_SO Status_Registry;
+
     [Header("Drag Settings")]
     [SerializeField] private float Normal_Drag_Offset = 0.5f;
     [SerializeField] private float Altered_Drag_Offset = 1.0f;
@@ -111,6 +116,9 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private Material Model_Placement_Material;
     [SerializeField] private Material Movement_Range_Material;
     [SerializeField] private Material Hazard_Path_Material;
+    [Tooltip("Applied to tiles that are only reachable because the model " +
+         "sprinted. Leave unassigned to fall back to Movement_Range_Material.")]
+    [SerializeField] private Material Sprint_Range_Material;
 
     [Header("Path Materials (Priority Order)")]
     [Tooltip("Index 0 is the primary path, 1 is secondary, 2 is tertiary, etc. " +
@@ -254,6 +262,7 @@ public class Battle_Board_Behavior : MonoBehaviour
     private List<Vector2Int> Model_Placement_Highlights = new List<Vector2Int>();
     private List<Vector2Int> Movement_Range_Highlights = new List<Vector2Int>();
     private Material Current_Flash_Material;
+    private List<Vector2Int> Sprint_Range_Highlights = new List<Vector2Int>();
 
 
     // ============================================================
@@ -457,7 +466,6 @@ public class Battle_Board_Behavior : MonoBehaviour
     }
 
 
-
     // ============================================================
     // PHASE MANAGEMENT
     // ============================================================
@@ -556,11 +564,9 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model == null || !Model.gameObject.activeSelf)
             return;
 
-        if (Model.Team != Active_Player)
-        {
-            Debug.Log($"Select_Model_Public: Cannot select enemy model (Team {Model.Team}). Active player is {Active_Player}.");
-            return;
-        }
+        // Enemy models are inspectable — the card opens in a read-only state.
+        // Only our own models get movement range and drag.
+        bool Is_Enemy = Model.Team != Active_Player;
 
         if (Selected_Model != null && Selected_Model != Model)
         {
@@ -568,17 +574,18 @@ public class Battle_Board_Behavior : MonoBehaviour
             Clear_Path_Highlights();
         }
 
+        Reset_Drag_State();
+
         Selected_Model = Model;
-        Display_Movement_Range(Model);
+
+        if (!Is_Enemy)
+            Display_Movement_Range(Model);
 
         if (Card_UI != null)
         {
             Faction_Data_SO Faction = Model.Team == Player_1 ? Player_1_Faction : Player_2_Faction;
             Card_UI.Show_Model_Info(Model, Faction);
         }
-
-        if (Debug_Log_Input)
-            Debug.Log($"Re-selected {Model.Stats.Model_Name} at ({Model.Current_X}, {Model.Current_Y})");
     }
 
     private void Handle_Model_Selection(Vector2Int Hit_Position)
@@ -595,15 +602,17 @@ public class Battle_Board_Behavior : MonoBehaviour
                 return;
             }
 
-            if (Clicked_Model.Team != Active_Player)
-            {
-                Debug.Log($"Cannot select model from opposing team (Player {Clicked_Model.Team}). Active player is {Active_Player}.");
-                return;
-            }
+            // Enemy models are inspectable but not actionable. Selecting one
+            // opens the card in a read-only state — no movement range, no
+            // drag, no button interactions.
+            bool Is_Enemy = Clicked_Model.Team != Active_Player;
 
             if (Clicked_Model == Selected_Model)
             {
-                Start_Hold_Timer(Hit_Position);
+                // Re-clicking the same model restarts the hold timer only for
+                // our own units. An enemy card can't be dragged.
+                if (!Is_Enemy)
+                    Start_Hold_Timer(Hit_Position);
                 return;
             }
 
@@ -618,9 +627,20 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Select_New_Model(Model_Standard_Behavior Model, Vector2Int Hit_Position)
     {
+        // Clear any in-flight drag from the previous selection. Without this
+        // an enemy selected while a click was still held could inherit the
+        // old Is_Holding state and start dragging.
+        Reset_Drag_State();
+
         Selected_Model = Model;
-        Display_Movement_Range(Model);
-        Start_Hold_Timer(Hit_Position);
+
+        bool Is_Enemy = Model.Team != Active_Player;
+
+        if (!Is_Enemy)
+        {
+            Display_Movement_Range(Model);
+            Start_Hold_Timer(Hit_Position);
+        }
 
         if (Card_UI != null)
         {
@@ -955,8 +975,27 @@ public class Battle_Board_Behavior : MonoBehaviour
         Model.Movement_Remaining_This_Turn -= Move_Cost;
         Model.Has_Moved_Since_Sprint = true;
 
-        if (Model.Is_Sprinting_This_Turn)
-            Model.Apply_Vulnerability();
+        // Sprint debuff lands only once the model has spent more movement
+        // since declaring the sprint than it had available before. This is
+        // the "actually used the sprint bonus" condition. Declaring a sprint
+        // and moving only within the base range does not trigger it, and a
+        // cancelled sprint never triggered it in the first place.
+        if (Model.Is_Sprinting_This_Turn
+            && !Model.Has_Used_Sprint_Bonus
+            && Model.Stats != null)
+        {
+            int Sprint_Range = Mathf.Min(
+                Model.Movement_Before_Sprint + Model.Stats.Sprint_Bonus,
+                Model.Stats.Get_Sprint_Range());
+
+            int Spent_Since_Sprint = Sprint_Range - Model.Movement_Remaining_This_Turn;
+
+            if (Spent_Since_Sprint > Model.Movement_Before_Sprint)
+            {
+                Model.Has_Used_Sprint_Bonus = true;
+                Model.Apply_Vulnerability();
+            }
+        }
 
         Models[X, Y] = Model;
         Models[Previous_Position.x, Previous_Position.y] = null;
@@ -982,7 +1021,9 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         Selected.Is_Sprinting_This_Turn = true;
         Selected.Has_Moved_Since_Sprint = false;
+        Selected.Has_Used_Sprint_Bonus = false;
         Selected.Movement_Before_Sprint = Selected.Movement_Remaining_This_Turn;
+
 
         int Cap = Selected.Stats.Get_Sprint_Range();
         Selected.Movement_Remaining_This_Turn = Mathf.Min(
@@ -1010,7 +1051,8 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model.Stats == null) return false;
 
         Model.Is_Sprinting_This_Turn = false;
-        Model.Movement_Remaining_This_Turn = Model.Movement_Before_Sprint;
+        Model.Has_Moved_Since_Sprint = false;
+        Model.Has_Used_Sprint_Bonus = false;
 
         if (Debug_Log_Movement)
             Debug.Log($"{Model.Stats.Model_Name} sprint cancelled. Movement restored to {Model.Movement_Remaining_This_Turn}.");
@@ -1023,17 +1065,6 @@ public class Battle_Board_Behavior : MonoBehaviour
     // SHOVE LOGIC
     // ============================================================
 
-    /// <summary>
-    /// The sprinter moves to the tile adjacent to the defender in the
-    /// direction of approach. The defender is pushed Shove_Distance tiles
-    /// in the same direction, or takes 1 damage if the push is blocked.
-    /// Either way, the sprinter ends its turn.
-    ///
-    /// The sprinter's transform is always re-anchored, even when it didn't
-    /// need to move in grid terms, using the smooth glide. During a drag the
-    /// model's transform follows the cursor, so a shove that doesn't change
-    /// grid tiles would otherwise leave the model floating.
-    /// </summary>
     private bool Try_Shove_Model(
         Model_Standard_Behavior Sprinter,
         Model_Standard_Behavior Defender,
@@ -2223,6 +2254,25 @@ public class Battle_Board_Behavior : MonoBehaviour
         int Start_X = Model.Current_X;
         int Start_Y = Model.Current_Y;
 
+        // Sprint-band threshold. Only meaningful while the model is sprinting.
+        // Base_Remaining_For_Sprint is the number of steps still available
+        // within the pre-sprint allowance. Any tile farther than that is
+        // sprint-only. Recomputed here so it tracks correctly as the model
+        // spends movement during the turn.
+        bool Show_Sprint_Band = Model.Is_Sprinting_This_Turn && Model.Stats != null;
+        int Base_Remaining_For_Sprint = -1;
+
+        if (Show_Sprint_Band)
+        {
+            int Sprint_Total = Mathf.Min(
+                Model.Movement_Before_Sprint + Model.Stats.Sprint_Bonus,
+                Model.Stats.Get_Sprint_Range());
+
+            int Spent_Since_Sprint = Sprint_Total - Model.Movement_Remaining_This_Turn;
+
+            Base_Remaining_For_Sprint = Model.Movement_Before_Sprint - Spent_Since_Sprint;
+        }
+
         bool[,] Visited = new bool[Tile_Count_X, Tile_Count_Y];
         Queue<Vector2Int> To_Explore = new Queue<Vector2Int>();
         Dictionary<Vector2Int, int> Distance_Map = new Dictionary<Vector2Int, int>();
@@ -2264,13 +2314,15 @@ public class Battle_Board_Behavior : MonoBehaviour
                 {
                     if (Occupant.Team == Model.Team)
                     {
-                        // Allies are pass-through but can't be landed on, so
-                        // they're not added to Movement_Range_Highlights.
+                        // Ally pass-through. The ally's tile is not a legal
+                        // landing spot, so it is not highlighted and gets no
+                        // material. It is still traversed so the search can
+                        // continue past it.
                         Visited[Neighbor.x, Neighbor.y] = true;
-                        int Ally_New_Distance = Current_Distance + 1;
-                        Distance_Map[Neighbor] = Ally_New_Distance;
+                        int Ally_Distance = Current_Distance + 1;
+                        Distance_Map[Neighbor] = Ally_Distance;
 
-                        if (Ally_New_Distance < Movement_Range)
+                        if (Ally_Distance < Movement_Range)
                             To_Explore.Enqueue(Neighbor);
 
                         continue;
@@ -2295,8 +2347,25 @@ public class Battle_Board_Behavior : MonoBehaviour
                 if (New_Distance <= Movement_Range)
                 {
                     Movement_Range_Highlights.Add(Neighbor);
-                    if (Movement_Range_Material != null)
+
+                    bool In_Sprint_Range = Show_Sprint_Band
+                                           && New_Distance > Base_Remaining_For_Sprint;
+
+                    if (In_Sprint_Range)
+                    {
+                        Sprint_Range_Highlights.Add(Neighbor);
+
+                        Material Mat = Sprint_Range_Material != null
+                            ? Sprint_Range_Material
+                            : Movement_Range_Material;
+
+                        if (Mat != null)
+                            Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Mat;
+                    }
+                    else if (Movement_Range_Material != null)
+                    {
                         Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
+                    }
                 }
 
                 if (New_Distance < Movement_Range)
@@ -2322,6 +2391,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         }
 
         Movement_Range_Highlights.Clear();
+        Sprint_Range_Highlights.Clear();
         Clear_Shove_Target_Highlights();
         Current_Flash_Material = null;
     }
@@ -2588,6 +2658,10 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model.Stats != null)
             Model.Current_Health = Model.Stats.Health;
 
+        // Status registry lookup for status rendering. Safe to pass null;
+        // models will still track statuses but render the gray fallback.
+        Model.Set_Status_Registry(Status_Registry);
+
         // Board-level tuning wins over whatever the prefab was saved with.
         Model.Configure_Motion(Board_Move_Duration, Board_Follow_Speed, Board_Ease_Discrete_Moves);
 
@@ -2709,13 +2783,11 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Model.Is_Sprinting_This_Turn = false;
                     Model.Has_Moved_Since_Sprint = false;
 
-                    // Decrement vulnerability at the start of the owner's turn.
-                    // Duration 1 = "exploitable for the rest of the current
-                    // turn" (i.e. the vulnerable unit's owner hasn't started
-                    // their turn yet). Duration 2 = survives one full owner
-                    // turn, exploitable again on the next enemy turn.
-                    if (Model.Vulnerability_Turns_Remaining > 0)
-                        Model.Vulnerability_Turns_Remaining--;
+                    // Decrements every active status (including Vulnerability)
+                    // by one turn and removes any that reach zero. Runs at
+                    // the start of the owner's turn, so a status applied by
+                    // the enemy lasts one full enemy turn before ticking.
+                    Model.Tick_Statuses();
                 }
             }
         }
@@ -2838,83 +2910,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Current_Map.Is_Elevated(X, Y);
     }
 
-    // ============================================================
-    // LINE OF SIGHT
-    // ============================================================
-
-    /// <summary>
-    /// True if the straight line between the centers of the two tiles
-    /// is not blocked by a wall. Used by ranged attacks; melee ignores
-    /// it because range 1 can never have an intervening tile.
-    ///
-    /// Uses fine sampling rather than Bresenham so diagonal squeezes
-    /// through wall corners are caught by the explicit corner rule
-    /// below: if a step is diagonal and BOTH perpendicular neighbors
-    /// are walls, the line is blocked even though the line never
-    /// enters either of those tiles.
-    ///
-    /// Neither endpoint blocks sight. Only intermediate tiles do.
-    /// </summary>
-    public bool Has_Line_Of_Sight(Vector2Int From, Vector2Int To)
-    {
-        if (From == To) return true;
-
-        Vector2 From_Center = new Vector2(From.x + 0.5f, From.y + 0.5f);
-        Vector2 To_Center = new Vector2(To.x + 0.5f, To.y + 0.5f);
-        Vector2 Delta = To_Center - From_Center;
-        float Distance = Delta.magnitude;
-
-        // Step small enough that no tile transition can be skipped.
-        const float Step = 0.1f;
-        int Samples = Mathf.Max(1, Mathf.CeilToInt(Distance / Step));
-
-        Vector2Int Previous_Tile = From;
-
-        for (int i = 1; i < Samples; i++)
-        {
-            float t = i / (float)Samples;
-            Vector2 Point = From_Center + Delta * t;
-            Vector2Int Tile = new Vector2Int(Mathf.FloorToInt(Point.x), Mathf.FloorToInt(Point.y));
-
-            if (Tile == Previous_Tile) continue;
-
-            // Diagonal step: block if both perpendicular neighbors are walls.
-            // This catches the "peek through the gap between two wall corners"
-            // case that pure line-walking would allow.
-            if (Tile.x != Previous_Tile.x && Tile.y != Previous_Tile.y)
-            {
-                Vector2Int Corner_A = new Vector2Int(Previous_Tile.x, Tile.y);
-                Vector2Int Corner_B = new Vector2Int(Tile.x, Previous_Tile.y);
-
-                if (Blocks_Line_Of_Sight(Corner_A) && Blocks_Line_Of_Sight(Corner_B))
-                    return false;
-            }
-
-            // Intermediate tiles block. The target tile itself does not.
-            if (Tile != To && Blocks_Line_Of_Sight(Tile))
-                return false;
-
-            Previous_Tile = Tile;
-        }
-
-        return true;
-    }
-
-    private bool Blocks_Line_Of_Sight(Vector2Int Tile)
-    {
-        if (Tile.x < 0 || Tile.x >= Tile_Count_X || Tile.y < 0 || Tile.y >= Tile_Count_Y)
-            return true;
-
-        Board_Modifiers Type = Map_Tiles[Tile.x, Tile.y];
-        return Type == Board_Modifiers.Wall;
-
-        // If you later decide cover also obstructs ranged fire, add:
-        //   || Type == Board_Modifiers.Cover
-        // The placement of this rule is deliberate: melee movement uses
-        // Is_Tile_Passable, which treats Cover as blocking. LOS uses its
-        // own query so you can tune the two independently.
-    }
-
 
     // ============================================================
     // MAP TERRAIN GENERATION
@@ -3017,7 +3012,17 @@ public class Battle_Board_Behavior : MonoBehaviour
             if (Renderer == null) continue;
 
             if (Movement_Range_Highlights.Contains(Tile))
-                Renderer.material = Movement_Range_Material != null ? Movement_Range_Material : Tile_Material;
+            {
+                // A tile that lives in the sprint band gets its own material back,
+                // so Combat_Manager clearing its highlights doesn't downgrade a
+                // sprint tile to the plain movement-range colour.
+                bool Is_Sprint_Tile = Sprint_Range_Highlights.Contains(Tile);
+
+                if (Is_Sprint_Tile && Sprint_Range_Material != null)
+                    Renderer.material = Sprint_Range_Material;
+                else
+                    Renderer.material = Movement_Range_Material != null ? Movement_Range_Material : Tile_Material;
+            }
             else if (Shove_Target_Highlights.Contains(Tile))
                 Renderer.material = Shove_Target_Material != null ? Shove_Target_Material : Tile_Material;
             else if (Shove_Destination_Highlights.Contains(Tile))

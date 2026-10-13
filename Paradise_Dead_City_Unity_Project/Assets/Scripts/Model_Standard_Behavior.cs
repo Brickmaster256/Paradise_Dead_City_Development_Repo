@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public enum Model_Type
@@ -24,7 +25,6 @@ public class Model_Standard_Behavior : MonoBehaviour
     // STATS
     // ============================================================
 
-    // Assigned by Battle_Board_Behavior when the model is spawned.
     public Model_Stats_SO Stats;
 
     // ============================================================
@@ -38,29 +38,91 @@ public class Model_Standard_Behavior : MonoBehaviour
     public int Movement_Before_Sprint;
     public bool Is_Sprinting_This_Turn;
     public bool Has_Moved_Since_Sprint;
+    public bool Has_Used_Sprint_Bonus;
 
     // ============================================================
-    // VULNERABILITY
+    // STATUSES
     // ============================================================
 
-    // Number of the owner's turn-starts remaining before vulnerability
-    // expires. 0 = not vulnerable. Two simultaneous sources set this to 2
-    // so it survives twice as long (per design: duration scales with source
-    // count). Decremented by Battle_Board_Behavior at the start of the
-    // owner's turn.
-    public int Vulnerability_Turns_Remaining;
+    private Status_Registry_SO Status_Registry;
+    private readonly List<Status_Instance> Active_Statuses = new List<Status_Instance>();
 
-    public bool Is_Vulnerable => Vulnerability_Turns_Remaining > 0;
+    public IReadOnlyList<Status_Instance> Get_Active_Statuses() => Active_Statuses;
 
     /// <summary>
-    /// Adds N turn-units of vulnerability. Sources stack additively on the
-    /// duration, not on the modifier magnitude (the modifier is always ±1,
+    /// Called by Battle_Board_Behavior at spawn so the model can look up
+    /// definitions when a status is added. If this is never set, statuses
+    /// still track turns but render with the gray fallback icon.
+    /// </summary>
+    public void Set_Status_Registry(Status_Registry_SO Registry)
+    {
+        Status_Registry = Registry;
+    }
+
+    public void Add_Status(Status_Type Type, int Turns = 1)
+    {
+        if (Turns <= 0) return;
+
+        for (int i = 0; i < Active_Statuses.Count; i++)
+        {
+            if (Active_Statuses[i].Type == Type)
+            {
+                Status_Instance Existing = Active_Statuses[i];
+                Existing.Turns_Remaining += Turns;
+                Active_Statuses[i] = Existing;
+                return;
+            }
+        }
+
+        Status_Definition_SO Def = Status_Registry != null ? Status_Registry.Get(Type) : null;
+        Active_Statuses.Add(new Status_Instance(Type, Def, Turns));
+    }
+
+    public void Remove_Status(Status_Type Type)
+    {
+        for (int i = Active_Statuses.Count - 1; i >= 0; i--)
+            if (Active_Statuses[i].Type == Type)
+                Active_Statuses.RemoveAt(i);
+    }
+
+    public bool Has_Status(Status_Type Type)
+    {
+        for (int i = 0; i < Active_Statuses.Count; i++)
+            if (Active_Statuses[i].Type == Type)
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Decrements every active status by one turn and removes any that
+    /// reach zero. Called by Battle_Board_Behavior at the start of this
+    /// model's owner's turn.
+    /// </summary>
+    public void Tick_Statuses()
+    {
+        for (int i = Active_Statuses.Count - 1; i >= 0; i--)
+        {
+            Status_Instance S = Active_Statuses[i];
+            S.Turns_Remaining--;
+            if (S.Turns_Remaining <= 0)
+                Active_Statuses.RemoveAt(i);
+            else
+                Active_Statuses[i] = S;
+        }
+    }
+
+    // ---- Vulnerability is a status under the hood -------------------
+
+    public bool Is_Vulnerable => Has_Status(Status_Type.Vulnerable);
+
+    /// <summary>
+    /// Adds N turn-units of vulnerability. Sources stack additively on
+    /// duration, not on modifier magnitude (the modifier is always ±1
     /// per the non-stacking attack rule).
     /// </summary>
     public void Apply_Vulnerability(int Sources = 1)
     {
-        if (Sources <= 0) return;
-        Vulnerability_Turns_Remaining += Sources;
+        Add_Status(Status_Type.Vulnerable, Sources);
     }
 
     // ============================================================
@@ -68,27 +130,15 @@ public class Model_Standard_Behavior : MonoBehaviour
     // ============================================================
 
     [Header("Smooth Motion")]
-    [Tooltip("Time in seconds for a discrete board move (Set_Position with Force=false). " +
-             "This is the shove/step glide. ~1.0 gives a visible hover-settle.")]
     [SerializeField] private float Move_Duration = 1.0f;
-
-    [Tooltip("Exponential follow speed used during drag (Follow_Position). " +
-             "Higher is snappier cursor-tracking.")]
     [SerializeField] private float Follow_Speed = 15f;
-
-    [Tooltip("If true, discrete moves ease in and out (SmoothStep). " +
-             "If false, discrete moves are linear.")]
     [SerializeField] private bool Ease_Discrete_Moves = true;
 
     private Vector3 Target_Position;
-
-    // Discrete-move tween state.
     private Vector3 Tween_Start_Position;
     private float Tween_Elapsed;
     private float Tween_Duration;
     private bool Is_Tweening;
-
-    // Drag-follow state.
     private bool Is_Following;
 
     private void Update()
@@ -99,7 +149,7 @@ public class Model_Standard_Behavior : MonoBehaviour
             float t = Tween_Duration > 0f ? Mathf.Clamp01(Tween_Elapsed / Tween_Duration) : 1f;
 
             if (Ease_Discrete_Moves)
-                t = t * t * (3f - 2f * t); // smoothstep
+                t = t * t * (3f - 2f * t);
 
             transform.position = Vector3.Lerp(Tween_Start_Position, Target_Position, t);
 
@@ -123,11 +173,6 @@ public class Model_Standard_Behavior : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Discrete board move. Force = true snaps instantly. Force = false
-    /// runs a fixed-duration eased glide (Move_Duration seconds).
-    /// Cancels any in-flight drag-follow.
-    /// </summary>
     public void Set_Position(Vector3 Position, bool Force = false)
     {
         Target_Position = Position;
@@ -146,11 +191,6 @@ public class Model_Standard_Behavior : MonoBehaviour
         Is_Tweening = true;
     }
 
-    /// <summary>
-    /// Continuous cursor-follow used during drag. Fast exponential lerp so
-    /// the model tracks the mouse with a slight hover lag. Cancels any
-    /// in-flight discrete tween.
-    /// </summary>
     public void Follow_Position(Vector3 Position)
     {
         Target_Position = Position;
@@ -158,11 +198,6 @@ public class Model_Standard_Behavior : MonoBehaviour
         Is_Following = true;
     }
 
-    /// <summary>
-    /// Applies damage directly to this model. Returns true if the model
-    /// survived, false if its health dropped to 0 or below. The caller is
-    /// responsible for triggering the kill/cleanup flow when this returns false.
-    /// </summary>
     public bool Take_Damage(int Amount)
     {
         if (Amount <= 0)
@@ -172,11 +207,6 @@ public class Model_Standard_Behavior : MonoBehaviour
         return Current_Health > 0;
     }
 
-    /// <summary>
-    /// Overrides the motion tuning normally set per-prefab. Called by
-    /// Battle_Board_Behavior at spawn time so the board's inspector values
-    /// win. Pass -1 for any argument to leave that value untouched.
-    /// </summary>
     public void Configure_Motion(float Move_Duration_Override, float Follow_Speed_Override, bool? Ease_Discrete_Moves_Override)
     {
         if (Move_Duration_Override >= 0f)

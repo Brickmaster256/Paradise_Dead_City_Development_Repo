@@ -32,6 +32,10 @@ public class Card_UI_Controller : MonoBehaviour
     [Header("Buttons")]
     [SerializeField] private Button Attack_Button;
     [SerializeField] private Button Sprint_Button;
+    [SerializeField] private Button Ability_Button;
+
+    [Header("Status Row")]
+    [SerializeField] private Status_Row_UI Status_Row;
 
     [Header("Text Fields")]
     [SerializeField] private TextMeshProUGUI Name_Text;
@@ -52,10 +56,7 @@ public class Card_UI_Controller : MonoBehaviour
     [SerializeField] private Sprite Default_Model_Icon;
 
     [Header("Transition Settings")]
-    [Tooltip("How long the close animation takes. Card data remains visible for this duration.")]
     [SerializeField] private float Close_Animation_Duration = 0.5f;
-
-    [Tooltip("Extra delay between close and open when transitioning from one model to another.")]
     [SerializeField] private float Card_Transition_Delay = 0.3f;
 
 
@@ -64,14 +65,11 @@ public class Card_UI_Controller : MonoBehaviour
     // ============================================================
 
     private int Active_Player = 1;
-
     private bool Is_Card_Open = false;
     private Model_Standard_Behavior Current_Displayed_Model;
     private Faction_Data_SO Current_Faction;
     private Coroutine Current_Transition;
-
     private Combat_Manager Combat_Mgr;
-
     private Coroutine Current_Close;
 
 
@@ -86,19 +84,12 @@ public class Card_UI_Controller : MonoBehaviour
             Card_Animator = GetComponent<Animator>();
             if (Card_Animator == null)
                 Card_Animator = GetComponentInChildren<Animator>();
-
-            if (Card_Animator == null)
-                Debug.LogWarning("Card_UI_Controller: No Animator found! Please assign one in the Inspector.");
         }
 
         Combat_Mgr = FindAnyObjectByType<Combat_Manager>();
-        if (Combat_Mgr == null)
-            Debug.LogWarning("Card_UI_Controller: Combat_Manager not found in scene! Attack button won't work.");
 
         if (Battle_Board == null)
             Battle_Board = FindAnyObjectByType<Battle_Board_Behavior>();
-        if (Battle_Board == null)
-            Debug.LogWarning("Card_UI_Controller: Battle_Board not found in scene! Sprint button won't work.");
     }
 
     private void Start()
@@ -116,6 +107,9 @@ public class Card_UI_Controller : MonoBehaviour
 
         if (Sprint_Button != null)
             Sprint_Button.onClick.AddListener(On_Sprint_Button_Clicked);
+
+        if (Ability_Button != null)
+            Ability_Button.onClick.AddListener(On_Ability_Button_Clicked);
     }
 
 
@@ -125,13 +119,8 @@ public class Card_UI_Controller : MonoBehaviour
 
     public void Show_Model_Info(Model_Standard_Behavior Model, Faction_Data_SO Faction)
     {
-        if (Model == null || Model.Stats == null)
-        {
-            Debug.LogWarning("Card_UI_Controller: Cannot display null model or model without stats");
-            return;
-        }
+        if (Model == null || Model.Stats == null) return;
 
-        // Cancel any in-progress close; we're about to (re)open the card.
         if (Current_Close != null)
         {
             StopCoroutine(Current_Close);
@@ -140,7 +129,6 @@ public class Card_UI_Controller : MonoBehaviour
 
         if (Is_Card_Open && Current_Displayed_Model == Model)
         {
-            // Already showing this model - just refresh data/buttons without animation.
             Refresh_Card_For_Model(Model);
             return;
         }
@@ -162,8 +150,7 @@ public class Card_UI_Controller : MonoBehaviour
 
     public void Hide_Model_Info()
     {
-        if (!Is_Card_Open)
-            return;
+        if (!Is_Card_Open) return;
 
         if (Current_Transition != null)
         {
@@ -180,7 +167,7 @@ public class Card_UI_Controller : MonoBehaviour
     public void Set_Active_Player(int Player)
     {
         Active_Player = Player;
-        Update_Attack_Button_State();
+        Update_Button_States();
     }
 
 
@@ -193,7 +180,6 @@ public class Card_UI_Controller : MonoBehaviour
         Trigger_Close();
         Is_Card_Open = false;
 
-        // Data stays visible during the close animation
         yield return new WaitForSeconds(Close_Animation_Duration);
 
         Clear_Card();
@@ -223,26 +209,14 @@ public class Card_UI_Controller : MonoBehaviour
             Card_Animator.ResetTrigger(Close_Trigger);
             Card_Animator.SetTrigger(Open_Trigger);
         }
-        else
-        {
-            Debug.LogWarning("Card_UI_Controller: Cannot play Open animation - Animator is missing!");
-        }
 
         Is_Card_Open = true;
     }
 
-    /// <summary>
-    /// Forces a full re-population of the card for the given model, even if
-    /// it's already the displayed model. Use after state changes (movement,
-    /// damage) that should update button interactability.
-    /// </summary>
     public void Refresh_Card_For_Model(Model_Standard_Behavior Model)
     {
-        if (Model == null || Model.Stats == null)
-            return;
-
-        if (Current_Displayed_Model != Model)
-            return;
+        if (Model == null || Model.Stats == null) return;
+        if (Current_Displayed_Model != Model) return;
 
         Populate_Card_Data(Model, Current_Faction);
     }
@@ -253,10 +227,6 @@ public class Card_UI_Controller : MonoBehaviour
         {
             Card_Animator.ResetTrigger(Open_Trigger);
             Card_Animator.SetTrigger(Close_Trigger);
-        }
-        else
-        {
-            Debug.LogWarning("Card_UI_Controller: Cannot play Close animation - Animator is missing!");
         }
     }
 
@@ -279,7 +249,10 @@ public class Card_UI_Controller : MonoBehaviour
         Set_Image(Faction_Icon, Faction?.Get_Faction_Icon(), Default_Faction_Icon);
         Set_Image(Model_Icon, Faction?.Get_Model_Icon(Model.Type), Default_Model_Icon);
 
-        Update_Attack_Button_State();
+        if (Status_Row != null)
+            Status_Row.Show_Statuses(Model.Get_Active_Statuses());
+
+        Update_Button_States();
     }
 
     private void Clear_Card()
@@ -293,16 +266,14 @@ public class Card_UI_Controller : MonoBehaviour
         Set_Text(Damage_Num, Default_Stat);
         Set_Text(Description_Text, Default_Description);
 
-        if (Faction_Icon != null)
-            Faction_Icon.sprite = Default_Faction_Icon;
-        if (Model_Icon != null)
-            Model_Icon.sprite = Default_Model_Icon;
+        if (Faction_Icon != null) Faction_Icon.sprite = Default_Faction_Icon;
+        if (Model_Icon != null) Model_Icon.sprite = Default_Model_Icon;
 
-        if (Attack_Button != null)
-            Attack_Button.interactable = false;
+        if (Status_Row != null) Status_Row.Clear();
 
-        if (Sprint_Button != null)
-            Sprint_Button.interactable = false;
+        if (Attack_Button != null) Attack_Button.gameObject.SetActive(false);
+        if (Sprint_Button != null) Sprint_Button.gameObject.SetActive(false);
+        if (Ability_Button != null) Ability_Button.gameObject.SetActive(false);
     }
 
 
@@ -320,8 +291,10 @@ public class Card_UI_Controller : MonoBehaviour
         if (Stats.Has_Splash_Damage)
             Description += $"{Description_Bullet}Splash Damage\n";
 
-        if (Stats.Has_Ability)
-            Description += $"{Description_Bullet}Special Ability\n";
+        if (Stats.Ability == Model_Stats_SO.Ability_Kind.Passive)
+            Description += $"{Description_Bullet}Passive Ability\n";
+        else if (Stats.Ability == Model_Stats_SO.Ability_Kind.Active)
+            Description += $"{Description_Bullet}Active Ability\n";
 
         if (string.IsNullOrEmpty(Description))
             return "No special abilities";
@@ -331,59 +304,73 @@ public class Card_UI_Controller : MonoBehaviour
 
     private static void Set_Text(TextMeshProUGUI Field, string Value)
     {
-        if (Field != null)
-            Field.text = Value;
+        if (Field != null) Field.text = Value;
     }
 
     private static void Set_Image(Image Field, Sprite Primary, Sprite Fallback)
     {
-        if (Field == null)
-            return;
-
+        if (Field == null) return;
         Field.sprite = Primary != null ? Primary : Fallback;
     }
 
-    private void Update_Attack_Button_State()
+    /// <summary>
+    /// Updates both the visibility and the interactability of every button
+    /// based on the currently displayed model and the active player.
+    /// Visibility is a model property (has an active ability or not);
+    /// interactability is a turn-state property (already acted, etc.).
+    /// </summary>
+    private void Update_Button_States()
     {
-        if (Attack_Button == null && Sprint_Button == null)
-            return;
-
         Model_Standard_Behavior Displayed = Current_Displayed_Model;
 
-        if (Displayed == null || Displayed.Team != Active_Player)
+        bool Has_Model = Displayed != null;
+        bool Is_Mine = Has_Model && Displayed.Team == Active_Player;
+
+        bool Can_Act = Is_Mine
+                       && !Displayed.Has_Attacked_This_Turn
+                       && !Displayed.Has_Ended_Turn;
+
+        bool Is_Sprinting = Has_Model && Displayed.Is_Sprinting_This_Turn;
+
+        // ---- Visibility ----
+        // Buttons only appear on our own models. Enemy cards are read-only,
+        // so the entire button column collapses for them.
+        if (Attack_Button != null)
+            Attack_Button.gameObject.SetActive(Is_Mine);
+
+        if (Sprint_Button != null)
+            Sprint_Button.gameObject.SetActive(Is_Mine);
+
+        if (Ability_Button != null)
         {
-            if (Attack_Button != null) Attack_Button.interactable = false;
-            if (Sprint_Button != null) Sprint_Button.interactable = false;
-            return;
+            bool Has_Active_Ability = Is_Mine
+                && Displayed.Stats != null
+                && Displayed.Stats.Ability == Model_Stats_SO.Ability_Kind.Active;
+
+            Ability_Button.gameObject.SetActive(Has_Active_Ability);
         }
 
-        bool Can_Act = !Displayed.Has_Attacked_This_Turn
-                    && !Displayed.Has_Ended_Turn;
-
-        // Attack and sprint are mutually exclusive with an active sprint.
-        bool Is_Sprinting = Displayed.Is_Sprinting_This_Turn;
-
+        // ---- Interactability ----
+        // Only meaningful while a button is visible, but harmless to set
+        // unconditionally.
         if (Attack_Button != null)
             Attack_Button.interactable = Can_Act && !Is_Sprinting;
 
-        // Sprint button stays clickable while sprinting so the player can cancel.
         if (Sprint_Button != null)
             Sprint_Button.interactable = Can_Act;
+
+        if (Ability_Button != null && Ability_Button.gameObject.activeSelf)
+            Ability_Button.interactable = Can_Act && !Is_Sprinting;
     }
 
-    /// <summary>
-    /// Updates the displayed health for the currently-displayed model
-    /// without triggering an animation. Does nothing if the currently
-    /// displayed model isn't the one passed in.
-    /// </summary>
     public void Refresh_Displayed_Health(Model_Standard_Behavior Model)
     {
-        if (Current_Displayed_Model != Model)
-            return;
+        if (Current_Displayed_Model != Model) return;
 
         Set_Text(Health_Num, $"{Model.Current_Health}/{Model.Stats.Health}");
-        Update_Attack_Button_State();
+        Update_Button_States();
     }
+
 
     // ============================================================
     // BUTTON CALLBACKS
@@ -391,22 +378,15 @@ public class Card_UI_Controller : MonoBehaviour
 
     private void On_Attack_Button_Clicked()
     {
-        if (Battle_Board != null)
-            Battle_Board.Notify_UI_Button_Pressed();
+        if (Battle_Board != null) Battle_Board.Notify_UI_Button_Pressed();
 
         if (Combat_Mgr != null)
             Combat_Mgr.On_Attack_Button_Pressed();
-        else
-            Debug.LogError("Combat_Manager not found in scene!");
     }
 
     private void On_Sprint_Button_Clicked()
     {
-        if (Battle_Board == null)
-        {
-            Debug.LogError("Card_UI_Controller: Battle_Board reference missing.");
-            return;
-        }
+        if (Battle_Board == null) return;
 
         Battle_Board.Notify_UI_Button_Pressed();
 
@@ -420,5 +400,16 @@ public class Card_UI_Controller : MonoBehaviour
 
         if (Battle_Board.Begin_Sprint())
             Hide_Model_Info();
+    }
+
+    private void On_Ability_Button_Clicked()
+    {
+        if (Battle_Board != null)
+            Battle_Board.Notify_UI_Button_Pressed();
+
+        // Stub. When we implement the ability system, this is where the
+        // dispatch happens — probably a call on Combat_Manager or a new
+        // Ability_Manager that reads the model's ability definition.
+        Debug.Log("Ability button pressed — ability system not yet implemented.");
     }
 }

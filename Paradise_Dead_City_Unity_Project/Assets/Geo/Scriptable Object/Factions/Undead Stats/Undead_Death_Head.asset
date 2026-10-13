@@ -26,4 +26,4 @@ MonoBehaviour:
   Sprint_Bonus: 2
   Is_Ranged: 1
   Has_Splash_Damage: 0
-  Has_Ability: 0
+  Ability: 2
