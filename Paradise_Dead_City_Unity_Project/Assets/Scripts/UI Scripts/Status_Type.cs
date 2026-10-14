@@ -5,5 +5,8 @@ public enum Status_Type
     Disadvantage,
     Blessed,
     Hidden,
-    Rot
+    Rot,
+    Duty_Bound,
+    Death_On_Wheels,
+    Passive_Ability
 }

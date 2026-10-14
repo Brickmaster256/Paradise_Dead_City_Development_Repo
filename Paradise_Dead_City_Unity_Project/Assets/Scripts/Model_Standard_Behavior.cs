@@ -22,6 +22,29 @@ public class Model_Standard_Behavior : MonoBehaviour
     public Model_Type Type;
 
     // ============================================================
+    // ABILITY
+    // ============================================================
+
+    // Assigned at spawn from Stats.Ability_Data. May be null.
+    public Ability_Definition_SO Ability;
+
+    // Turns remaining before the ability can be used again. 0 means
+    // ready. Ticked at the start of the owner's turn.
+    public int Ability_Recharge_Remaining;
+
+    public bool Ability_Is_Ready => Ability_Recharge_Remaining <= 0;
+
+    /// <summary>
+    /// Ticks the recharge counter down by one, floored at zero. Called
+    /// from Battle_Board_Behavior at the start of the owner's turn.
+    /// </summary>
+    public void Tick_Ability_Recharge()
+    {
+        if (Ability_Recharge_Remaining > 0)
+            Ability_Recharge_Remaining--;
+    }
+
+    // ============================================================
     // STATS
     // ============================================================
 
@@ -47,7 +70,29 @@ public class Model_Standard_Behavior : MonoBehaviour
     private Status_Registry_SO Status_Registry;
     private readonly List<Status_Instance> Active_Statuses = new List<Status_Instance>();
 
-    public IReadOnlyList<Status_Instance> Get_Active_Statuses() => Active_Statuses;
+    private readonly List<Status_Instance> Display_Statuses = new List<Status_Instance>();
+
+    public IReadOnlyList<Status_Instance> Get_Active_Statuses()
+    {
+        Display_Statuses.Clear();
+
+        // Passive abilities are always-on. Synthesize a permanent entry
+        // here rather than storing one in Active_Statuses, so it never
+        // ticks down or gets removed by Tick_Statuses.
+        if (Stats != null
+            && Stats.Ability_Data != null
+            && Stats.Ability_Data.Kind == Ability_Kind.Passive
+            && Stats.Ability_Data.Status_Display != null)
+        {
+            Display_Statuses.Add(new Status_Instance(
+                Status_Type.Passive_Ability,
+                Stats.Ability_Data.Status_Display,
+                int.MaxValue));
+        }
+
+        Display_Statuses.AddRange(Active_Statuses);
+        return Display_Statuses;
+    }
 
     /// <summary>
     /// Called by Battle_Board_Behavior at spawn so the model can look up

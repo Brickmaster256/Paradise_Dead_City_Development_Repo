@@ -38,6 +38,12 @@ public class Status_Tooltip_UI : MonoBehaviour
     [SerializeField] private float Horizontal_Offset = 8f;
     [SerializeField] private float Vertical_Offset = 6f;
 
+    [Header("Padding")]
+    [Tooltip("Extra space in pixels between the last text line and the " +
+             "bottom edge of the tooltip. Added on top of the Vertical " +
+             "Layout Group's bottom padding.")]
+    [SerializeField] private float Extra_Bottom_Padding = 8f;
+
     private RectTransform RT;
 
     private void Awake()
@@ -64,30 +70,36 @@ public class Status_Tooltip_UI : MonoBehaviour
         // Setting RectTransform.pivot triggers OnRectTransformDimensionsChange,
         // which uses SendMessage internally — Unity forbids that during
         // OnValidate. Deferring the write by one editor tick moves it outside
-        // the protected window and lets the pivot update in the Scene view
-        // as soon as the enum changes.
+        // the protected window.
         UnityEditor.EditorApplication.delayCall += Apply_Pivot_Editor;
     }
 
     private void Apply_Pivot_Editor()
     {
         UnityEditor.EditorApplication.delayCall -= Apply_Pivot_Editor;
-
-        // Guard against the component being destroyed between OnValidate
-        // and the deferred call.
         if (this == null) return;
-
-        if (RT == null)
-            RT = (RectTransform)transform;
-
-        if (RT != null)
-            RT.pivot = Get_Pivot_Vector();
+        Apply_Pivot();
     }
 #endif
 
+    // ============================================================
+    // SHOW
+    // ============================================================
+
     public void Show(Status_Definition_SO Definition, RectTransform Anchor)
     {
-        if (Definition == null || Anchor == null)
+        if (Definition == null)
+        {
+            Hide();
+            return;
+        }
+
+        Show(Definition.Display_Name, Definition.Description, Anchor);
+    }
+
+    public void Show(string Name, string Description, RectTransform Anchor)
+    {
+        if (Anchor == null)
         {
             Hide();
             return;
@@ -95,17 +107,11 @@ public class Status_Tooltip_UI : MonoBehaviour
 
         gameObject.SetActive(true);
 
-        if (Name_Text != null)
-            Name_Text.text = Definition.Display_Name;
+        if (Name_Text != null) Name_Text.text = Name;
+        if (Description_Text != null) Description_Text.text = Description;
+        if (Background_Image != null) Background_Image.color = Background_Color;
 
-        if (Description_Text != null)
-            Description_Text.text = Definition.Description;
-
-        if (Background_Image != null)
-            Background_Image.color = Background_Color;
-
-        LayoutRebuilder.ForceRebuildLayoutImmediate(RT);
-
+        Fit_To_Content();
         Position_Relative_To_Icon(Anchor);
     }
 
@@ -115,10 +121,64 @@ public class Status_Tooltip_UI : MonoBehaviour
             gameObject.SetActive(false);
     }
 
+    // ============================================================
+    // SIZING
+    // ============================================================
+
+    /// <summary>
+    /// Sizes the tooltip and both text children to fit their content.
+    ///
+    /// Bypasses the Content Size Fitter because TMP_Text.preferredHeight
+    /// can return a stale value for one or more frames after
+    /// ForceMeshUpdate in some TMP versions. GetPreferredValues() is a
+    /// direct query that doesn't rely on the cached mesh, and setting the
+    /// RectTransform sizes explicitly makes the result deterministic.
+    ///
+    /// Requires the Content Size Fitter to be REMOVED from the tooltip
+    /// root. The Vertical Layout Group stays (for padding and alignment),
+    /// but its Control Child Size / Child Force Expand for Height must
+    /// remain off.
+    /// </summary>
+    private void Fit_To_Content()
+    {
+        if (RT == null)
+            RT = (RectTransform)transform;
+
+        VerticalLayoutGroup VLG = GetComponent<VerticalLayoutGroup>();
+        float H_Pad = VLG != null ? (VLG.padding.left + VLG.padding.right) : 0f;
+        float V_Pad = VLG != null ? (VLG.padding.top + VLG.padding.bottom) : 0f;
+        float Spacing = VLG != null ? VLG.spacing : 0f;
+
+        float Content_Width = RT.rect.width - H_Pad;
+        if (Content_Width <= 1f)
+            Content_Width = Mathf.Max(1f, RT.rect.width);
+
+        float Name_H = 0f;
+        if (Name_Text != null && !string.IsNullOrEmpty(Name_Text.text))
+            Name_H = Name_Text.GetPreferredValues(Name_Text.text, Content_Width, 0f).y;
+
+        float Desc_H = 0f;
+        if (Description_Text != null && !string.IsNullOrEmpty(Description_Text.text))
+            Desc_H = Description_Text.GetPreferredValues(Description_Text.text, Content_Width, 0f).y;
+
+        if (Name_Text != null && Name_Text.rectTransform != null)
+            Name_Text.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Name_H);
+
+        if (Description_Text != null && Description_Text.rectTransform != null)
+            Description_Text.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Desc_H);
+
+        float Total_H = V_Pad + Name_H + Spacing + Desc_H + Extra_Bottom_Padding;
+        RT.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, Total_H);
+    }
+
+    // ============================================================
+    // PIVOT / POSITIONING
+    // ============================================================
+
     private void Apply_Pivot()
     {
-        if (RT != null)
-            RT.pivot = Get_Pivot_Vector();
+        if (RT == null) RT = (RectTransform)transform;
+        if (RT != null) RT.pivot = Get_Pivot_Vector();
     }
 
     private Vector2 Get_Pivot_Vector()

@@ -94,6 +94,7 @@ public class Combat_Manager : MonoBehaviour
         if (Selected_Model.Is_Sprinting_This_Turn) return;
         if (Selected_Model.Team != Battle_Board.Get_Active_Player()) return;
         if (Selected_Model.Has_Ended_Turn) return;
+        if (Selected_Model.Has_Status(Status_Type.Death_On_Wheels)) return;
 
         Battle_Board.Cancel_Active_Drag();
 
@@ -128,7 +129,15 @@ public class Combat_Manager : MonoBehaviour
 
         int Start_X = Model.Current_X;
         int Start_Y = Model.Current_Y;
+
         int Range = Model.Stats.Attack_Range;
+
+        // Flat range bonus from the model's ability (Duty Bound). Applied
+        // here so both ranged and melee paths see the extended value;
+        // melee ignores it because the melee sweeper hardcodes adjacency,
+        // but the parameter is harmless.
+        if (Model.Ability != null)
+            Range += Model.Ability.Get_Flat_Attack_Range_Bonus(Model, Battle_Board);
 
         if (Model.Stats.Is_Ranged)
             Show_Ranged_Attack_Range(Model, Start_X, Start_Y, Range);
@@ -141,6 +150,14 @@ public class Combat_Manager : MonoBehaviour
         int Tile_Count_X = Battle_Board.Get_Tile_Count_X();
         int Tile_Count_Y = Battle_Board.Get_Tile_Count_Y();
 
+        // Ask the ability what it can shoot past. Default is: nothing.
+        Ability_Targeting_Flags Target_Flags = Ability_Targeting_Flags.None;
+        if (Model.Ability != null)
+            Target_Flags = Model.Ability.Get_Targeting_Flags(Model, Battle_Board);
+
+        bool Ignore_Walls = (Target_Flags & Ability_Targeting_Flags.Ignore_Walls) != 0;
+        bool Ignore_Models = (Target_Flags & Ability_Targeting_Flags.Ignore_Models) != 0;
+
         foreach (Vector2Int Dir in Cardinal_Directions)
         {
             for (int Step = 1; Step <= Range; Step++)
@@ -151,8 +168,17 @@ public class Combat_Manager : MonoBehaviour
                 if (X < 0 || X >= Tile_Count_X || Y < 0 || Y >= Tile_Count_Y)
                     break;
 
-                if (Battle_Board.Get_Tile_Type_At(X, Y) == Board_Modifiers.Wall)
-                    break;
+                bool Is_Wall = Battle_Board.Get_Tile_Type_At(X, Y) == Board_Modifiers.Wall;
+
+                if (Is_Wall)
+                {
+                    if (!Ignore_Walls)
+                        break;
+
+                    // The wall doesn't stop the sweep, but the wall tile
+                    // itself is still a wall — don't mark it attackable.
+                    continue;
+                }
 
                 Model_Standard_Behavior Occupant = Battle_Board.Get_Model_At(X, Y);
                 bool Occupied = Occupant != null && Occupant.gameObject.activeSelf;
@@ -162,8 +188,13 @@ public class Combat_Manager : MonoBehaviour
                     if (Occupant.Team != Model.Team)
                         Mark_Valid_Target(new Vector2Int(X, Y));
 
-                    // Body — friendly or enemy — stops the sweep.
-                    break;
+                    // A body — friendly or enemy — stops the sweep unless
+                    // the ability lets us shoot past. An enemy tile that was
+                    // just marked stays marked; the sweep continues behind it.
+                    if (!Ignore_Models)
+                        break;
+
+                    continue;
                 }
 
                 Mark_Attack_Range(new Vector2Int(X, Y));
@@ -293,9 +324,23 @@ public class Combat_Manager : MonoBehaviour
     {
         Debug.Log($"=== COMBAT: {Attacker.Stats.Model_Name} attacks {Defender.Stats.Model_Name} ===");
 
+        // Firing exposes reloading units. Applied before the roll so it
+        // triggers on both hits and misses — a missed shot still had to be
+        // chambered and the reload cycle begins regardless.
+        if (Attacker.Stats != null && Attacker.Stats.Reloads_After_Firing)
+            Attacker.Apply_Vulnerability();
+
         int Hit_Roll = Roll_D6();
         int Base_Target = Attacker.Stats.Attack_Skill;
         int Modifier = Get_Attack_Modifier(Attacker, Defender);
+
+        // The Advantage and Disadvantage statuses are single-use: any
+        // attack this model makes consumes them, hit or miss. Removing
+        // them after the modifier is read (but before the roll resolves)
+        // keeps the buffs from lingering across turns.
+        Attacker.Remove_Status(Status_Type.Advantage);
+        Attacker.Remove_Status(Status_Type.Disadvantage);
+
         int Needed_To_Hit = Mathf.Clamp(Base_Target - Modifier, 2, 6);
 
         string Mod_Label = Modifier > 0 ? "advantage" : Modifier < 0 ? "disadvantage" : "neutral";
@@ -433,11 +478,22 @@ public class Combat_Manager : MonoBehaviour
         int Advantage = 0;
         int Disadvantage = 0;
 
-        bool Attacker_High = Battle_Board.Is_Tile_Elevated(Attacker.Current_X, Attacker.Current_Y);
-        bool Defender_High = Battle_Board.Is_Tile_Elevated(Defender.Current_X, Defender.Current_Y);
-
         var Sources_Advantage = new List<string>();
         var Sources_Disadvantage = new List<string>();
+
+        // Ability-supplied filters. A passive can cancel specific disadvantage
+        // sources (Raining Bodies), and future abilities will be able to add
+        // new sources here as well.
+        Ability_Combat_Flags Flags = Ability_Combat_Flags.None;
+        if (Attacker.Ability != null)
+            Flags = Attacker.Ability.Get_Combat_Flags(Attacker, Defender, Battle_Board);
+
+        bool Ignore_Elev_Dis = (Flags & Ability_Combat_Flags.Ignore_Elevation_Disadvantage) != 0;
+        bool Ignore_Cover_Dis = (Flags & Ability_Combat_Flags.Ignore_Cover_Disadvantage) != 0;
+        bool Ignore_Vuln_Dis = (Flags & Ability_Combat_Flags.Ignore_Vulnerable_Disadvantage) != 0;
+
+        bool Attacker_High = Battle_Board.Is_Tile_Elevated(Attacker.Current_X, Attacker.Current_Y);
+        bool Defender_High = Battle_Board.Is_Tile_Elevated(Defender.Current_X, Defender.Current_Y);
 
         // Elevation — ranged only.
         if (Attacker.Stats.Is_Ranged)
@@ -447,7 +503,7 @@ public class Combat_Manager : MonoBehaviour
                 Advantage++;
                 Sources_Advantage.Add("elevation");
             }
-            if (Defender_High && !Attacker_High)
+            if (Defender_High && !Attacker_High && !Ignore_Elev_Dis)
             {
                 Disadvantage++;
                 Sources_Disadvantage.Add("target on elevation");
@@ -455,7 +511,7 @@ public class Combat_Manager : MonoBehaviour
         }
 
         // Cover between attacker and defender.
-        if (Cover_Between(Attacker, Defender))
+        if (Cover_Between(Attacker, Defender) && !Ignore_Cover_Dis)
         {
             Disadvantage++;
             Sources_Disadvantage.Add("cover");
@@ -467,16 +523,38 @@ public class Combat_Manager : MonoBehaviour
             Advantage++;
             Sources_Advantage.Add("target vulnerable");
         }
-        if (Attacker.Is_Vulnerable)
+        if (Attacker.Is_Vulnerable && !Ignore_Vuln_Dis)
         {
             Disadvantage++;
             Sources_Disadvantage.Add("attacker vulnerable");
         }
 
-        int Result;
-        if (Advantage > 0 && Disadvantage == 0) Result = +1;
-        else if (Disadvantage > 0 && Advantage == 0) Result = -1;
-        else Result = 0;
+        // Status-borne modifiers. Advantage / Disadvantage are granted
+        // by abilities (Soul Siphon, and eventually others). They are
+        // consumed by Execute_Attack after this read.
+        if (Attacker.Has_Status(Status_Type.Advantage))
+        {
+            Advantage++;
+            Sources_Advantage.Add("Advantage status");
+        }
+        if (Attacker.Has_Status(Status_Type.Disadvantage))
+        {
+            Disadvantage++;
+            Sources_Disadvantage.Add("Disadvantage status");
+        }
+
+        int Adv_Mod = 0;
+        if (Advantage > 0 && Disadvantage == 0) Adv_Mod = +1;
+        else if (Disadvantage > 0 && Advantage == 0) Adv_Mod = -1;
+
+        // Flat skill bonuses from abilities (Duty Bound, and future
+        // effects). These are separate from advantage and stack additively
+        // on top of it.
+        int Flat_Skill_Bonus = 0;
+        if (Attacker.Ability != null)
+            Flat_Skill_Bonus = Attacker.Ability.Get_Flat_Attack_Skill_Bonus(Attacker, Battle_Board);
+
+        int Result = Adv_Mod + Flat_Skill_Bonus;
 
         if (Debug_Log_Combat_Modifiers)
         {
@@ -489,8 +567,7 @@ public class Combat_Manager : MonoBehaviour
 
             Debug.Log($"[Modifier] {Attacker.Stats.Model_Name} → {Defender.Stats.Model_Name} | " +
                       $"Advantage: {Adv} | Disadvantage: {Dis} | " +
-                      $"Net: {Result:+#;-#;0} (atk high: {Attacker_High}, def high: {Defender_High}, " +
-                      $"atk vuln: {Attacker.Is_Vulnerable}, def vuln: {Defender.Is_Vulnerable})");
+                      $"Net: {Result:+#;-#;0} (adv {Adv_Mod:+#;-#;0}, flat {Flat_Skill_Bonus:+#;-#;0})");
         }
 
         return Result;

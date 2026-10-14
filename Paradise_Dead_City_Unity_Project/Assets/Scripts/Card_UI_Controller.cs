@@ -170,6 +170,7 @@ public class Card_UI_Controller : MonoBehaviour
         Update_Button_States();
     }
 
+    public Model_Standard_Behavior Get_Displayed_Model() => Current_Displayed_Model;
 
     // ============================================================
     // TRANSITIONS
@@ -239,7 +240,7 @@ public class Card_UI_Controller : MonoBehaviour
     {
         Set_Text(Name_Text, Model.Stats.Model_Name);
         Set_Text(Health_Num, $"{Model.Current_Health}/{Model.Stats.Health}");
-        Set_Text(Movement_Num, Model.Stats.Movement_Range.ToString());
+        Set_Text(Movement_Num, Model.Movement_Remaining_This_Turn.ToString());
         Set_Text(Attack_Num, $"{Model.Stats.Attack_Skill}+");
         Set_Text(Range_Num, Model.Stats.Attack_Range.ToString());
         Set_Text(Damage_Num, Model.Stats.Attack_Damage.ToString());
@@ -291,10 +292,14 @@ public class Card_UI_Controller : MonoBehaviour
         if (Stats.Has_Splash_Damage)
             Description += $"{Description_Bullet}Splash Damage\n";
 
-        if (Stats.Ability == Model_Stats_SO.Ability_Kind.Passive)
-            Description += $"{Description_Bullet}Passive Ability\n";
-        else if (Stats.Ability == Model_Stats_SO.Ability_Kind.Active)
-            Description += $"{Description_Bullet}Active Ability\n";
+        if (Stats.Ability_Data != null)
+        {
+            string Kind_Label = Stats.Ability_Data.Kind == Ability_Kind.Active
+                ? "Active"
+                : "Passive";
+
+            Description += $"{Description_Bullet}{Kind_Label}: {Stats.Ability_Data.Ability_Name}\n";
+        }
 
         if (string.IsNullOrEmpty(Description))
             return "No special abilities";
@@ -327,10 +332,16 @@ public class Card_UI_Controller : MonoBehaviour
         bool Is_Mine = Has_Model && Displayed.Team == Active_Player;
 
         bool Can_Act = Is_Mine
-                       && !Displayed.Has_Attacked_This_Turn
-                       && !Displayed.Has_Ended_Turn;
+               && !Displayed.Has_Attacked_This_Turn
+               && !Displayed.Has_Ended_Turn;
 
         bool Is_Sprinting = Has_Model && Displayed.Is_Sprinting_This_Turn;
+
+        // Death on Wheels locks the unit to movement for the rest of the
+        // turn. Sprint and Attack are disabled; the Ability button is
+        // already greyed out by its recharge.
+        bool Locked_To_Movement = Has_Model
+                                  && Displayed.Has_Status(Status_Type.Death_On_Wheels);
 
         // ---- Visibility ----
         // Buttons only appear on our own models. Enemy cards are read-only,
@@ -345,7 +356,7 @@ public class Card_UI_Controller : MonoBehaviour
         {
             bool Has_Active_Ability = Is_Mine
                 && Displayed.Stats != null
-                && Displayed.Stats.Ability == Model_Stats_SO.Ability_Kind.Active;
+                && Displayed.Stats.Get_Ability_Kind() == Ability_Kind.Active;
 
             Ability_Button.gameObject.SetActive(Has_Active_Ability);
         }
@@ -354,20 +365,24 @@ public class Card_UI_Controller : MonoBehaviour
         // Only meaningful while a button is visible, but harmless to set
         // unconditionally.
         if (Attack_Button != null)
-            Attack_Button.interactable = Can_Act && !Is_Sprinting;
+            Attack_Button.interactable = Can_Act && !Is_Sprinting && !Locked_To_Movement;
 
         if (Sprint_Button != null)
-            Sprint_Button.interactable = Can_Act;
+            Sprint_Button.interactable = Can_Act && !Locked_To_Movement;
 
         if (Ability_Button != null && Ability_Button.gameObject.activeSelf)
-            Ability_Button.interactable = Can_Act && !Is_Sprinting;
+        {
+            bool Ability_Ready = Displayed.Ability == null || Displayed.Ability_Is_Ready;
+            Ability_Button.interactable = Can_Act && !Is_Sprinting && Ability_Ready;
+        }
     }
 
-    public void Refresh_Displayed_Health(Model_Standard_Behavior Model)
+    public void Refresh_Displayed_Stats(Model_Standard_Behavior Model)
     {
         if (Current_Displayed_Model != Model) return;
 
         Set_Text(Health_Num, $"{Model.Current_Health}/{Model.Stats.Health}");
+        Set_Text(Movement_Num, Model.Movement_Remaining_This_Turn.ToString());
         Update_Button_States();
     }
 
@@ -404,12 +419,31 @@ public class Card_UI_Controller : MonoBehaviour
 
     private void On_Ability_Button_Clicked()
     {
-        if (Battle_Board != null)
-            Battle_Board.Notify_UI_Button_Pressed();
+        if (Battle_Board == null) return;
 
-        // Stub. When we implement the ability system, this is where the
-        // dispatch happens — probably a call on Combat_Manager or a new
-        // Ability_Manager that reads the model's ability definition.
-        Debug.Log("Ability button pressed — ability system not yet implemented.");
+        Battle_Board.Notify_UI_Button_Pressed();
+
+        // Second press confirms the targeting session if one is active.
+        var Targeting = Battle_Board.Get_Ability_Targeting_Controller();
+        if (Targeting != null && Targeting.Is_Currently_Targeting())
+        {
+            Targeting.Confirm();
+
+            // Refresh so the button reflects the new cooldown and any
+            // status changes on the displayed model.
+            if (Current_Displayed_Model != null)
+                Refresh_Card_For_Model(Current_Displayed_Model);
+            return;
+        }
+
+        Model_Standard_Behavior Selected = Battle_Board.Get_Selected_Model();
+        if (Selected == null || Selected.Ability == null) return;
+
+        if (!Selected.Ability.Can_Activate(Selected, Battle_Board)) return;
+
+        Selected.Ability.Activate(Selected, Battle_Board);
+
+        if (Current_Displayed_Model == Selected)
+            Refresh_Card_For_Model(Selected);
     }
 }

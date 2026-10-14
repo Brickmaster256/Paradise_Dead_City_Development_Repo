@@ -119,12 +119,17 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &48590410 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 7068030445672354757, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+  m_PrefabInstance: {fileID: 8073864690056085566}
+  m_PrefabAsset: {fileID: 0}
 --- !u!114 &267038573 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
   m_PrefabInstance: {fileID: 8073864690056085566}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 48590410}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 44ce009663063be4885dfdc8bdd67920, type: 3}
@@ -135,6 +140,26 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 6060389736486774675, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
   m_PrefabInstance: {fileID: 8073864690056085566}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &267038575
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 48590410}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4ccb4a7d84d37f345a5ad9cda7798d35, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Ability_Targeting_Controller
+  Board: {fileID: 267038573}
+  Range_Tile_Material: {fileID: 2100000, guid: 7057e2516e46d5d499a59ceacb98b89f, type: 2}
+  Candidate_Tile_Material: {fileID: 2100000, guid: 8088ea88a48e56b42bfa3c9b3391baed, type: 2}
+  Hover_Tile_Material: {fileID: 2100000, guid: ec3ba1095a469b645a9d50b087209e65, type: 2}
+  Selected_Tile_Material: {fileID: 2100000, guid: a56ee067d20ee27418da370d58390887, type: 2}
+  Flash_Speed: 2
+  Flash_Min_Alpha: 0.4
+  Flash_Max_Alpha: 1
 --- !u!1 &389578364
 GameObject:
   m_ObjectHideFlags: 0
@@ -1837,14 +1862,6 @@ PrefabInstance:
       propertyPath: m_AnchoredPosition.y
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 2316388940979884225, guid: a2d2927777d98544aa11242510fc0622, type: 3}
-      propertyPath: Vertical_Offset
-      value: -4
-      objectReference: {fileID: 0}
-    - target: {fileID: 2316388940979884225, guid: a2d2927777d98544aa11242510fc0622, type: 3}
-      propertyPath: Horizontal_Offset
-      value: -5
-      objectReference: {fileID: 0}
     - target: {fileID: 2471811294905124374, guid: a2d2927777d98544aa11242510fc0622, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -1856,6 +1873,10 @@ PrefabInstance:
     - target: {fileID: 2471811294905124374, guid: a2d2927777d98544aa11242510fc0622, type: 3}
       propertyPath: m_SizeDelta.x
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2471811294905124374, guid: a2d2927777d98544aa11242510fc0622, type: 3}
+      propertyPath: m_SizeDelta.y
+      value: 22
       objectReference: {fileID: 0}
     - target: {fileID: 2471811294905124374, guid: a2d2927777d98544aa11242510fc0622, type: 3}
       propertyPath: m_AnchoredPosition.x
@@ -1899,7 +1920,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4750270554270996925, guid: a2d2927777d98544aa11242510fc0622, type: 3}
       propertyPath: m_SizeDelta.y
-      value: 0
+      value: 78
       objectReference: {fileID: 0}
     - target: {fileID: 4750270554270996925, guid: a2d2927777d98544aa11242510fc0622, type: 3}
       propertyPath: m_LocalPosition.x
@@ -2077,6 +2098,7 @@ MonoBehaviour:
   Flash_Speed: 3
   Flash_Min_Alpha: 0.3
   Flash_Max_Alpha: 0.5
+  Debug_Log_Combat_Modifiers: 1
 --- !u!4 &1380488650
 Transform:
   m_ObjectHideFlags: 0
@@ -2104,6 +2126,7 @@ GameObject:
   - component: {fileID: 1429123319}
   - component: {fileID: 1429123318}
   - component: {fileID: 1429123317}
+  - component: {fileID: 1429123320}
   m_Layer: 5
   m_Name: Ability_Button
   m_TagString: Untagged
@@ -2212,6 +2235,20 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1429123315}
   m_CullTransparentMesh: 1
+--- !u!114 &1429123320
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1429123315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5c5e23928c5a4894f8f805ca260d5c44, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Ability_Button_Hover
+  Card: {fileID: 1139322805}
+  Tooltip: {fileID: 1214424034}
 --- !u!1 &1439902835
 GameObject:
   m_ObjectHideFlags: 0
@@ -3052,6 +3089,10 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 1139322805}
     - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      propertyPath: Drag_Hold_Time
+      value: 0.2
+      objectReference: {fileID: 0}
+    - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
       propertyPath: Status_Registry
       value: 
       objectReference: {fileID: 11400000, guid: f9e648fcc42316d48aa5bc3ed122db53, type: 2}
@@ -3059,6 +3100,10 @@ PrefabInstance:
       propertyPath: Player_1_Faction
       value: 
       objectReference: {fileID: 11400000, guid: eb6197eb03ddf9c4ea7112ca599d24b8, type: 2}
+    - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      propertyPath: Ability_Targeting
+      value: 
+      objectReference: {fileID: 267038575}
     - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
       propertyPath: Combat_Manager_Ref
       value: 
@@ -3079,6 +3124,14 @@ PrefabInstance:
       propertyPath: Board_Ease_Discrete_Moves
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      propertyPath: Death_On_Wheels_Destroy_Material
+      value: 
+      objectReference: {fileID: 2100000, guid: b87c1d4716b7a3e428ab9bc0b95ab6e7, type: 2}
+    - target: {fileID: 1365854189067950064, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      propertyPath: Death_On_Wheels_Shove_Preview_Material
+      value: 
+      objectReference: {fileID: 2100000, guid: c0bbb4494c3b0c44792b02b8cdf01c7b, type: 2}
     - target: {fileID: 6060389736486774675, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0
@@ -3126,7 +3179,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 7068030445672354757, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 267038575}
   m_SourcePrefab: {fileID: 100100000, guid: 45cd0253eec03c84dbb3e9fb27e6957b, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

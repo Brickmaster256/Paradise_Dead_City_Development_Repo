@@ -26,4 +26,5 @@ MonoBehaviour:
   Sprint_Bonus: 2
   Is_Ranged: 1
   Has_Splash_Damage: 0
-  Ability: 1
+  Reloads_After_Firing: 0
+  Ability_Data: {fileID: 0}

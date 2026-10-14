@@ -89,6 +89,12 @@ public class Battle_Board_Behavior : MonoBehaviour
              "every model at spawn so statuses can look up their visuals.")]
     [SerializeField] private Status_Registry_SO Status_Registry;
 
+    [Header("Ability Targeting")]
+    [Tooltip("Handles the multi-select targeting mode used by abilities " +
+             "like Soul Siphon. Assigned to the same GameObject or a " +
+             "sibling controller.")]
+    [SerializeField] private Ability_Targeting_Controller Ability_Targeting;
+
     [Header("Drag Settings")]
     [SerializeField] private float Normal_Drag_Offset = 0.5f;
     [SerializeField] private float Altered_Drag_Offset = 1.0f;
@@ -97,7 +103,7 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     [Header("Smooth Motion")]
     [Tooltip("Seconds for a discrete board move (step / shove glide). " +
-         "Pushed to every model at spawn time, overriding the prefab value.")]
+             "Pushed to every model at spawn time, overriding the prefab value.")]
     [SerializeField] private float Board_Move_Duration = 1.0f;
 
     [Tooltip("Exponential cursor-follow speed during drag. Higher is snappier.")]
@@ -116,9 +122,18 @@ public class Battle_Board_Behavior : MonoBehaviour
     [SerializeField] private Material Model_Placement_Material;
     [SerializeField] private Material Movement_Range_Material;
     [SerializeField] private Material Hazard_Path_Material;
+
     [Tooltip("Applied to tiles that are only reachable because the model " +
-         "sprinted. Leave unassigned to fall back to Movement_Range_Material.")]
+             "sprinted. Leave unassigned to fall back to Movement_Range_Material.")]
     [SerializeField] private Material Sprint_Range_Material;
+
+    [Tooltip("Applied to Wall and Cover tiles the Corpse Engine will " +
+             "destroy while Death on Wheels is active.")]
+    [SerializeField] private Material Death_On_Wheels_Destroy_Material;
+
+    [Tooltip("Applied to tiles where enemies would end up after being " +
+             "shoved during Death on Wheels.")]
+    [SerializeField] private Material Death_On_Wheels_Shove_Preview_Material;
 
     [Header("Path Materials (Priority Order)")]
     [Tooltip("Index 0 is the primary path, 1 is secondary, 2 is tertiary, etc. " +
@@ -261,8 +276,9 @@ public class Battle_Board_Behavior : MonoBehaviour
     private List<Vector2Int> Spawn_Tile_Highlights = new List<Vector2Int>();
     private List<Vector2Int> Model_Placement_Highlights = new List<Vector2Int>();
     private List<Vector2Int> Movement_Range_Highlights = new List<Vector2Int>();
-    private Material Current_Flash_Material;
     private List<Vector2Int> Sprint_Range_Highlights = new List<Vector2Int>();
+    private List<Vector2Int> DOW_Shove_Preview_Tiles = new List<Vector2Int>();
+    private Material Current_Flash_Material;
 
 
     // ============================================================
@@ -522,6 +538,21 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Was_UI_Button_Just_Pressed())
             return;
 
+        // Ability targeting takes priority over every other gameplay input
+        // while it's active.
+        if (Ability_Targeting != null && Ability_Targeting.Is_Currently_Targeting())
+        {
+            Ability_Targeting.Handle_Tile_Hover(Hit_Position);
+
+            if (Click_Action != null && Click_Action.WasPressedThisFrame())
+                Ability_Targeting.Handle_Tile_Click(Hit_Position);
+
+            if (RightClick_Action != null && RightClick_Action.WasPressedThisFrame())
+                Ability_Targeting.Cancel();
+
+            return;
+        }
+
         // Combat targeting takes absolute priority and blocks all other input.
         if (Combat_Manager_Ref != null && Combat_Manager_Ref.Is_Currently_Selecting_Target())
         {
@@ -543,8 +574,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (RightClick_Action != null && RightClick_Action.WasPressedThisFrame())
             Deselect_Current_Model();
 
-        // Read the space-bar press once. WasPressedThisFrame() on the same
-        // action can observe false on a second call within the same frame.
         bool space_pressed = Space_Bar_Action != null && Space_Bar_Action.WasPressedThisFrame();
 
         if (space_pressed && Dragged_Model != null)
@@ -564,8 +593,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model == null || !Model.gameObject.activeSelf)
             return;
 
-        // Enemy models are inspectable — the card opens in a read-only state.
-        // Only our own models get movement range and drag.
         bool Is_Enemy = Model.Team != Active_Player;
 
         if (Selected_Model != null && Selected_Model != Model)
@@ -594,23 +621,16 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         if (Clicked_Model != null)
         {
-            // Ghost entry from a deactivated model still in the array. Clear
-            // it and bail so the player isn't stuck with an unselectable unit.
             if (!Clicked_Model.gameObject.activeSelf)
             {
                 Models[Hit_Position.x, Hit_Position.y] = null;
                 return;
             }
 
-            // Enemy models are inspectable but not actionable. Selecting one
-            // opens the card in a read-only state — no movement range, no
-            // drag, no button interactions.
             bool Is_Enemy = Clicked_Model.Team != Active_Player;
 
             if (Clicked_Model == Selected_Model)
             {
-                // Re-clicking the same model restarts the hold timer only for
-                // our own units. An enemy card can't be dragged.
                 if (!Is_Enemy)
                     Start_Hold_Timer(Hit_Position);
                 return;
@@ -627,9 +647,6 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Select_New_Model(Model_Standard_Behavior Model, Vector2Int Hit_Position)
     {
-        // Clear any in-flight drag from the previous selection. Without this
-        // an enemy selected while a click was still held could inherit the
-        // old Is_Holding state and start dragging.
         Reset_Drag_State();
 
         Selected_Model = Model;
@@ -665,11 +682,12 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Deselect_Current_Model()
     {
-        // If we're mid-target-selection, bail out of that first.
         if (Combat_Manager_Ref != null && Combat_Manager_Ref.Is_Currently_Selecting_Target())
             Combat_Manager_Ref.Force_Clear_Combat_State();
 
-        // If a model was sprinting but hasn't moved, roll the sprint back.
+        if (Ability_Targeting != null && Ability_Targeting.Is_Currently_Targeting())
+            Ability_Targeting.Cancel();
+
         if (Selected_Model != null)
             Cancel_Sprint(Selected_Model);
 
@@ -756,8 +774,6 @@ public class Battle_Board_Behavior : MonoBehaviour
 
         Model_Standard_Behavior Moved_Model = Dragged_Model;
 
-        // Snapshot before Reset_Drag_State / Try_Move_Model can wipe the
-        // path state we still need for hazard damage.
         List<Vector2Int> Chosen_Path = Get_Selected_Path_Copy();
         Vector2Int Previous_Position = new Vector2Int(Moved_Model.Current_X, Moved_Model.Current_Y);
 
@@ -849,7 +865,7 @@ public class Battle_Board_Behavior : MonoBehaviour
         else
         {
             if (Card_UI != null)
-                Card_UI.Refresh_Displayed_Health(Model);
+                Card_UI.Refresh_Displayed_Stats(Model);
         }
     }
 
@@ -869,15 +885,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         Current_Hold_Time = 0f;
     }
 
-    /// <summary>
-    /// Aborts any active drag, gliding a dragged model back to its grid tile,
-    /// and clears the hold timer. Safe to call at any time.
-    ///
-    /// Combat_Manager calls this when attack targeting begins. Without it, the
-    /// Is_Holding flag left over from the initial selection click survives into
-    /// combat, and the held attack-target click gets reinterpreted as a drag —
-    /// the attacker lunges toward the enemy cursor position.
-    /// </summary>
     public void Cancel_Active_Drag()
     {
         if (Dragged_Model != null)
@@ -911,10 +918,12 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private bool Try_Move_Model(Model_Standard_Behavior Model, int X, int Y)
     {
+        if (Model.Has_Status(Status_Type.Death_On_Wheels))
+            return Try_Death_On_Wheels_Move(Model, X, Y);
+
         Vector2Int Previous_Position = new Vector2Int(Model.Current_X, Model.Current_Y);
         Vector2Int Target_Position = new Vector2Int(X, Y);
 
-        // Enemy tile: intercept as a shove.
         Model_Standard_Behavior Target_Occupant = Models[X, Y];
         if (Target_Occupant != null && Target_Occupant.Team != Model.Team)
         {
@@ -939,6 +948,13 @@ public class Battle_Board_Behavior : MonoBehaviour
         {
             if (Debug_Log_Movement)
                 Debug.Log($"{Model.Type} has ended its turn.");
+            return false;
+        }
+
+        if (Model.Has_Status(Status_Type.Duty_Bound))
+        {
+            if (Debug_Log_Movement)
+                Debug.Log($"{Model.Type} is Duty Bound and cannot move this turn.");
             return false;
         }
 
@@ -975,11 +991,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         Model.Movement_Remaining_This_Turn -= Move_Cost;
         Model.Has_Moved_Since_Sprint = true;
 
-        // Sprint debuff lands only once the model has spent more movement
-        // since declaring the sprint than it had available before. This is
-        // the "actually used the sprint bonus" condition. Declaring a sprint
-        // and moving only within the base range does not trigger it, and a
-        // cancelled sprint never triggered it in the first place.
         if (Model.Is_Sprinting_This_Turn
             && !Model.Has_Used_Sprint_Bonus
             && Model.Stats != null)
@@ -1003,6 +1014,252 @@ public class Battle_Board_Behavior : MonoBehaviour
         return true;
     }
 
+
+    // ============================================================
+    // DEATH ON WHEELS MOVEMENT
+    // ============================================================
+
+    /// <summary>
+    /// Movement flow for Death on Wheels. Walks the chosen path tile by
+    /// tile because each intermediate tile may trigger a shove or a
+    /// terrain destruction. The path is captured from All_Paths_To_Target,
+    /// which the drag preview populated before the drop.
+    ///
+    /// Cost model: 1 per tile entered, +1 if the tile is Wall or Cover
+    /// (destroyed on entry). The whole path is validated against the
+    /// model's remaining movement before any effect applies, so a failed
+    /// move never leaves the board half-modified.
+    /// </summary>
+    private bool Try_Death_On_Wheels_Move(Model_Standard_Behavior Model, int X, int Y)
+    {
+        Vector2Int Start = new Vector2Int(Model.Current_X, Model.Current_Y);
+        Vector2Int Target = new Vector2Int(X, Y);
+
+        if (Start == Target) return false;
+        if (Model.Has_Ended_Turn) return false;
+        if (Model.Movement_Remaining_This_Turn <= 0) return false;
+        if (All_Paths_To_Target.Count == 0) return false;
+
+        int Index = Mathf.Clamp(Current_Path_Index, 0, All_Paths_To_Target.Count - 1);
+        List<Vector2Int> Path = All_Paths_To_Target[Index];
+
+        if (Path.Count < 2) return false;
+        if (Path[Path.Count - 1] != Target) return false;
+
+        // ---- Pass 1: validate cost against budget. ----
+        int Cost = 0;
+        for (int i = 1; i < Path.Count; i++)
+        {
+            Cost += 1;
+
+            Vector2Int Tile_Pos = Path[i];
+            Board_Modifiers Tile = Get_Tile_Type_At(Tile_Pos.x, Tile_Pos.y);
+            if (Tile == Board_Modifiers.Wall || Tile == Board_Modifiers.Cover)
+                Cost += 1;
+        }
+
+        if (Cost > Model.Movement_Remaining_This_Turn)
+        {
+            if (Debug_Log_Movement)
+                Debug.Log($"[Death on Wheels] Path costs {Cost}, only " +
+                          $"{Model.Movement_Remaining_This_Turn} available.");
+            return false;
+        }
+
+        // ---- Pass 2: walk the path, apply effects. ----
+        int Push = 2;
+        int Damage = 1;
+        if (Model.Ability is Death_On_Wheels_Ability Dow)
+        {
+            Push = Mathf.Max(1, Dow.Shove_Push);
+            Damage = Mathf.Max(0, Dow.Shove_Damage);
+        }
+
+        var Already_Damaged = new HashSet<Model_Standard_Behavior>();
+
+        Vector2Int Current = Start;
+        for (int i = 1; i < Path.Count; i++)
+        {
+            Vector2Int Next = Path[i];
+            Vector2Int Dir = Next - Current;
+
+            // Destroy any obstacle in the tile before moving in.
+            Board_Modifiers Tile = Get_Tile_Type_At(Next.x, Next.y);
+            if (Tile == Board_Modifiers.Wall || Tile == Board_Modifiers.Cover)
+            {
+                Destroy_Terrain_At(Next.x, Next.y);
+                Model.Movement_Remaining_This_Turn -= 1;
+                if (Debug_Log_Movement)
+                    Debug.Log($"[Death on Wheels] Destroyed {Tile} at ({Next.x},{Next.y}).");
+            }
+
+            // Shove any enemy in the tile.
+            var Victim = Models[Next.x, Next.y];
+            if (Victim != null && Victim.Team != Model.Team)
+            {
+                bool First_Hit = !Already_Damaged.Contains(Victim);
+                int Damage_This_Push = First_Hit ? Damage : 0;
+
+                int Moved = Try_Push_Victim_Damaging(
+                    Victim, Next, Dir, Push, Damage_This_Push, Already_Damaged);
+
+                if (First_Hit && Moved < Push)
+                    Victim.Apply_Vulnerability();
+
+                if (First_Hit)
+                    Model.Movement_Remaining_This_Turn -= 1;
+
+                // If the tile is still occupied — the victim survived and
+                // couldn't be pushed — the engine can't advance. Stop the
+                // walk here. Without this the model would overwrite the
+                // victim in the Models array (the "merging" bug).
+                if (Models[Next.x, Next.y] != null)
+                {
+                    if (Debug_Log_Movement)
+                        Debug.Log($"[Death on Wheels] Tile ({Next.x},{Next.y}) still " +
+                                  $"occupied after shove. Stopping at ({Current.x},{Current.y}).");
+                    break;
+                }
+            }
+
+            Model.Movement_Remaining_This_Turn -= 1;
+            Current = Next;
+        }
+
+        // ---- Move the model to its final position. ----
+        Models[Start.x, Start.y] = null;
+        Models[Current.x, Current.y] = Model;
+        Model.Current_X = Current.x;
+        Model.Current_Y = Current.y;
+        Model.Has_Moved_Since_Sprint = true;
+        Model.Set_Position(Get_Tile_Center(Current.x, Current.y), false);
+
+        if (Card_UI != null && Card_UI.Get_Displayed_Model() == Model)
+            Card_UI.Refresh_Displayed_Stats(Model);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Recursively pushes a victim and any cascade. Every model in the
+    /// chain takes damage, whether or not they actually move. Terrain
+    /// blocking a push (Wall or Cover) is destroyed during the cascade,
+    /// since Death on Wheels is a wrecking ball.
+    ///
+    /// Returns the number of tiles the primary victim actually moved, so
+    /// the caller can decide whether to apply vulnerability.
+    /// </summary>
+    private int Try_Push_Victim_Damaging(
+        Model_Standard_Behavior Victim,
+        Vector2Int Victim_Pos,
+        Vector2Int Direction,
+        int Max_Distance,
+        int Damage,
+        HashSet<Model_Standard_Behavior> Already_Damaged)
+    {
+        if (Victim == null || Direction == Vector2Int.zero) return 0;
+
+        // Damage applies whether or not the push succeeds — a blocked
+        // shove still slams the target, matching the standard rule.
+        if (!Already_Damaged.Contains(Victim))
+        {
+            Already_Damaged.Add(Victim);
+
+            if (Damage > 0)
+            {
+                bool Survived = Victim.Take_Damage(Damage);
+                if (!Survived)
+                {
+                    if (Combat_Manager_Ref != null)
+                        Combat_Manager_Ref.Kill_Model(Victim);
+                    return 0;
+                }
+            }
+        }
+
+        Vector2Int Current = Victim_Pos;
+        int Pushed = 0;
+
+        for (int Step = 0; Step < Max_Distance; Step++)
+        {
+            Vector2Int Next = Current + Direction;
+
+            if (Next.x < 0 || Next.x >= Tile_Count_X ||
+                Next.y < 0 || Next.y >= Tile_Count_Y)
+                break;
+
+            Board_Modifiers Tile_Type = Get_Tile_Type_At(Next.x, Next.y);
+            if (Tile_Type == Board_Modifiers.Wall || Tile_Type == Board_Modifiers.Cover)
+            {
+                Destroy_Terrain_At(Next.x, Next.y);
+                if (Debug_Log_Shove)
+                    Debug.Log($"[Death on Wheels] Push cascade destroyed {Tile_Type} at ({Next.x},{Next.y}).");
+            }
+
+            if (!Is_Tile_Passable(Next.x, Next.y))
+                break;
+
+            Model_Standard_Behavior Blocker = Models[Next.x, Next.y];
+            if (Blocker != null)
+            {
+                int Blocker_Pushed = Try_Push_Victim_Damaging(
+                    Blocker, Next, Direction, Max_Distance - Step, Damage, Already_Damaged);
+
+                if (Blocker_Pushed == 0 && Models[Next.x, Next.y] != null)
+                    break;
+
+                if (Models[Next.x, Next.y] != null)
+                    break;
+            }
+
+            Models[Current.x, Current.y] = null;
+            Models[Next.x, Next.y] = Victim;
+            Victim.Current_X = Next.x;
+            Victim.Current_Y = Next.y;
+            Current = Next;
+            Pushed++;
+        }
+
+        if (Pushed > 0)
+            Victim.Set_Position(Get_Tile_Center(Current.x, Current.y), false);
+
+        return Pushed;
+    }
+
+    /// <summary>
+    /// Removes a Wall or Cover tile from the board. Clears the modifier
+    /// so pathfinding sees the new state, destroys the visual prefab, and
+    /// repaints the tile floor to the base material.
+    /// </summary>
+    private void Destroy_Terrain_At(int X, int Y)
+    {
+        if (X < 0 || X >= Tile_Count_X || Y < 0 || Y >= Tile_Count_Y) return;
+
+        Map_Tiles[X, Y] = Board_Modifiers.None;
+
+        if (Terrain_Objects != null)
+        {
+            GameObject Obj = Terrain_Objects[X, Y];
+            if (Obj != null)
+            {
+                Destroy(Obj);
+                Terrain_Objects[X, Y] = null;
+            }
+        }
+
+        if (Tiles[X, Y] != null)
+        {
+            MeshRenderer R = Tiles[X, Y].GetComponent<MeshRenderer>();
+            if (R != null)
+            {
+                R.material = Tile_Material;
+                Color C = R.material.color;
+                C.a = 1f;
+                R.material.color = C;
+            }
+        }
+    }
+
     /// <summary>
     /// Converts the rest of this model's turn into a sprint. Adds the sprint
     /// bonus to remaining movement, capped at the sprint range. The model
@@ -1017,13 +1274,13 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Selected.Has_Ended_Turn) return false;
         if (Selected.Stats == null) return false;
         if (Selected.Is_Sprinting_This_Turn) return false;
+        if (Selected.Has_Status(Status_Type.Death_On_Wheels)) return false;
         if (Selected.Stats.Sprint_Bonus <= 0) return false;
 
         Selected.Is_Sprinting_This_Turn = true;
         Selected.Has_Moved_Since_Sprint = false;
         Selected.Has_Used_Sprint_Bonus = false;
         Selected.Movement_Before_Sprint = Selected.Movement_Remaining_This_Turn;
-
 
         int Cap = Selected.Stats.Get_Sprint_Range();
         Selected.Movement_Remaining_This_Turn = Mathf.Min(
@@ -1074,7 +1331,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         Vector2Int Direction;
         Vector2Int Stop_Position;
 
-        // Prefer the direction implied by the selected path (StopTile = Path[^2]).
         if (All_Paths_To_Target.Count > 0)
         {
             int Index = Mathf.Clamp(Current_Path_Index, 0, All_Paths_To_Target.Count - 1);
@@ -1114,8 +1370,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             return false;
         }
 
-        // Stop tile must be free (or the sprinter's own tile). Without this
-        // guard we can silently overwrite another unit in the Models array.
         if (Stop_Position != Sprinter_Start && Models[Stop_Position.x, Stop_Position.y] != null)
         {
             if (Debug_Log_Shove)
@@ -1140,8 +1394,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Push_Path.Add(Dest);
         }
 
-        // Re-verify the final tile before committing. Is_Valid_Shove_Destination
-        // checked it, but state could have changed between preview and drop.
         if (!Blocked)
         {
             Vector2Int Final_Tile = Push_Path[Push_Path.Count - 1];
@@ -1153,7 +1405,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             }
         }
 
-        // Update the sprinter's grid position if it moved to a new tile.
         if (Stop_Position != Sprinter_Start)
         {
             Models[Sprinter_Start.x, Sprinter_Start.y] = null;
@@ -1162,10 +1413,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Sprinter.Current_Y = Stop_Position.y;
         }
 
-        // Re-anchor the sprinter's transform UNCONDITIONALLY with the smooth
-        // glide (Force = false). This handles the case where Stop_Position ==
-        // Sprinter_Start and the model was left at cursor height during the
-        // drag — instead of teleporting, it glides down to the tile center.
         Sprinter.Set_Position(Get_Tile_Center(Sprinter.Current_X, Sprinter.Current_Y), false);
 
         Sprinter.Movement_Remaining_This_Turn = 0;
@@ -1179,7 +1426,6 @@ public class Battle_Board_Behavior : MonoBehaviour
                 Debug.Log($"Shove blocked! {Defender.Stats.Model_Name} takes 1 damage.");
 
             Defender.Set_Position(Get_Tile_Center(Defender.Current_X, Defender.Current_Y), false);
-
             Defender.Apply_Vulnerability();
 
             bool Survived = Defender.Take_Damage(1);
@@ -1190,7 +1436,7 @@ public class Battle_Board_Behavior : MonoBehaviour
             }
             else if (Card_UI != null)
             {
-                Card_UI.Refresh_Displayed_Health(Defender);
+                Card_UI.Refresh_Displayed_Stats(Defender);
             }
         }
         else
@@ -1222,7 +1468,7 @@ public class Battle_Board_Behavior : MonoBehaviour
                 }
                 else if (Card_UI != null)
                 {
-                    Card_UI.Refresh_Displayed_Health(Defender);
+                    Card_UI.Refresh_Displayed_Stats(Defender);
                 }
 
                 if (Debug_Log_Shove)
@@ -1292,11 +1538,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Debug.Log($"Shove paths to ({Enemy_Position.x}, {Enemy_Position.y}): {All_Paths_To_Target.Count}");
     }
 
-    /// <summary>
-    /// Re-applies shove-target and shove-destination materials. Called after
-    /// path drawing, since a destination tile is often also the stop tile of
-    /// the opposite approach and the path pass would otherwise win the paint.
-    /// </summary>
     private void Repaint_Shove_Highlights()
     {
         if (Shove_Target_Material != null)
@@ -1334,17 +1575,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Curate_Shove_Paths(Candidates, Enemy_Position);
     }
 
-    /// <summary>
-    /// One BFS per cardinal approach direction. If alternate routes are
-    /// enabled, every shortest route to each stop tile is kept; otherwise
-    /// only the single shortest route per direction.
-    ///
-    /// The Stop_Tile == Start case is special-cased: the sprinter doesn't
-    /// need to move to be adjacent on that side, so the "path" is just the
-    /// start tile itself. Without this, the straight-ahead shove direction
-    /// is silently dropped because Find_All_Paths returns empty when
-    /// Start == Target.
-    /// </summary>
     private List<List<Vector2Int>> Generate_Shove_Path_Candidates(
         Vector2Int Start,
         Vector2Int Enemy_Position,
@@ -1374,19 +1604,13 @@ public class Battle_Board_Behavior : MonoBehaviour
 
             if (Stop_Tile == Start)
             {
-                // Sprinter is already adjacent on this side. The "path" is a
-                // single tile (the sprinter's own tile). Append Enemy_Position
-                // below to get [(Start), Enemy].
                 Sub_Paths = new List<List<Vector2Int>>
-            {
-                new List<Vector2Int> { Start }
-            };
+                {
+                    new List<Vector2Int> { Start }
+                };
             }
             else if (Show_Alternate_Routes_Per_Direction)
             {
-                // Use the full budget. Try_Shove_Model charges only the
-                // Manhattan distance to the stop tile, and the shove itself
-                // is free, so a stop tile exactly Max_Distance away is legal.
                 Sub_Paths = Find_All_Paths(Start, Stop_Tile, Max_Distance);
             }
             else
@@ -1411,12 +1635,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Result;
     }
 
-    /// <summary>
-    /// Trims candidates to at most Max_Shove_Paths_Shown. One best route per
-    /// direction survives first; leftovers fill empty slots if enabled, so
-    /// the player can choose between routes to the same shove direction when
-    /// one is safer (fewer hazards) than another.
-    /// </summary>
     private List<List<Vector2Int>> Curate_Shove_Paths(
         List<List<Vector2Int>> Candidates,
         Vector2Int Enemy_Position)
@@ -1424,8 +1642,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Candidates.Count == 0)
             return Candidates;
 
-        // Group by approach direction. Direction = Enemy - StopTile, which is
-        // the direction the defender is shoved.
         var By_Direction = new Dictionary<Vector2Int, List<List<Vector2Int>>>();
         foreach (var Path in Candidates)
         {
@@ -1439,8 +1655,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             List.Add(Path);
         }
 
-        // Within each direction, sort so the best route is first: shortest,
-        // then fewest hazards (if the preference is enabled).
         foreach (var Entry in By_Direction)
         {
             Entry.Value.Sort((A, B) =>
@@ -1460,9 +1674,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             });
         }
 
-        // One representative per direction is the baseline. Additional routes
-        // to the same direction are surfaced as extra cycle stops so the player
-        // can pick the safer route without leaving the direction.
         var Chosen = new List<List<Vector2Int>>();
         var Remainders = new List<List<Vector2Int>>();
 
@@ -1515,10 +1726,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Count;
     }
 
-    /// <summary>
-    /// The shove direction is Defender - StopTile, where StopTile is the
-    /// second-to-last tile of the selected path.
-    /// </summary>
     private void Update_Shove_Preview_From_Path(Vector2Int Enemy_Position)
     {
         Clear_Shove_Destination_Highlights();
@@ -1571,7 +1778,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             if (Tile.x < 0 || Tile.x >= Tile_Count_X || Tile.y < 0 || Tile.y >= Tile_Count_Y)
                 continue;
 
-            // Priority order: Path > Shove target > Movement range > base.
             if (Shove_Target_Highlights.Contains(Tile))
                 continue;
 
@@ -1628,10 +1834,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             return Delta.y > 0 ? new Vector2Int(0, 1) : new Vector2Int(0, -1);
     }
 
-    /// <summary>
-    /// Destination must be in bounds, passable, and free of any model.
-    /// Hazard tiles are valid.
-    /// </summary>
     private bool Is_Valid_Shove_Destination(Vector2Int Pos)
     {
         if (Pos.x < 0 || Pos.x >= Tile_Count_X || Pos.y < 0 || Pos.y >= Tile_Count_Y)
@@ -1646,11 +1848,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// The path material the given tile should currently be wearing, based on
-    /// which paths contain it and what priority each has right now. Used by
-    /// the shove-destination clear path so it doesn't blow path paint away.
-    /// </summary>
     private Material Get_Path_Material_For_Tile(Vector2Int Tile)
     {
         if (All_Paths_To_Target.Count == 0 || Current_Path_Index < 0)
@@ -1711,8 +1908,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         Current_Hover_Target = Target;
 
         Vector2Int Start = new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y);
-
-        // Use remaining movement, not base stat, so sprint pathfinding works.
         int Max_Distance = Dragged_Model.Movement_Remaining_This_Turn;
 
         All_Paths_To_Target = Find_All_Paths(Start, Target, Max_Distance);
@@ -1734,6 +1929,8 @@ public class Battle_Board_Behavior : MonoBehaviour
             for (int i = 0; i < All_Paths_To_Target.Count; i++)
                 Debug.Log($"[Move] path{i}: {Analyze_Path(All_Paths_To_Target[i])}");
         }
+
+        Update_DOW_Shove_Preview();
     }
 
     private void Switch_To_Next_Path()
@@ -1757,6 +1954,9 @@ public class Battle_Board_Behavior : MonoBehaviour
             Repaint_Shove_Highlights();
         }
 
+        if (Dragged_Model != null && Dragged_Model.Has_Status(Status_Type.Death_On_Wheels))
+            Update_DOW_Shove_Preview();
+
         if (Debug_Log_Pathfinding)
             Debug.Log($"[Cycle] -> {Analyze_Path(All_Paths_To_Target[Current_Path_Index])} | {Describe_Path(All_Paths_To_Target[Current_Path_Index])}");
     }
@@ -1779,7 +1979,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Priority_Order[i] = Order;
         }
 
-        // Paint lowest priority first, highest last, so the primary wins ties.
         for (int Priority_Level = Levels - 1; Priority_Level >= 0; Priority_Level--)
         {
             for (int i = 0; i < All_Paths_To_Target.Count; i++)
@@ -1803,6 +2002,13 @@ public class Battle_Board_Behavior : MonoBehaviour
             if (!Path_Highlight_Tiles.Contains(Tile))
                 Path_Highlight_Tiles.Add(Tile);
 
+            Material DOW = Get_DOW_Tile_Override(Tile.x, Tile.y);
+            if (DOW != null)
+            {
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = DOW;
+                continue;
+            }
+
             if (Is_Primary && Tile_Is_Hazard(Tile) && Hazard_Path_Material != null)
                 Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Hazard_Path_Material;
             else if (Regular_Path_Material != null)
@@ -1810,12 +2016,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Compact per-cycle summary. One header line, then one line per tile
-    /// that belongs to more than one priority level. This replaces the
-    /// per-tile paint spam and is the log you actually want when the
-    /// primary path looks inconsistent across cycles.
-    /// </summary>
     private void Log_Path_Paint_Summary(int[] Priority_Order, int Levels)
     {
         var Tiles_By_Priority = new Dictionary<int, List<Vector2Int>>();
@@ -1837,10 +2037,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Header += $"P{p}={Tiles_By_Priority[p].Count} ";
         Debug.Log(Header);
 
-        // For each tile that appears on more than one priority level, print
-        // the priority levels it belongs to and which one wins the paint.
-        // Any tile listed here whose final priority is not the smallest in
-        // its membership list is a paint-order bug.
         var Ownership = new Dictionary<Vector2Int, List<int>>();
         for (int p = 0; p < Levels; p++)
         {
@@ -1865,12 +2061,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Priorities 0..N-1 map to Path_Materials[0..N-1], where N is the smaller
-    /// of Path_Slot_Count and Path_Materials.Length. Priorities beyond the
-    /// last assigned material fall back to that material, so a tile never
-    /// ends up unpainted.
-    /// </summary>
     private Material Get_Path_Material(int Priority)
     {
         int Slot_Count = Mathf.Min(Path_Slot_Count, Path_Materials.Length);
@@ -1892,7 +2082,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             return Mat;
         }
 
-        // Fall back to the nearest lower slot that has a material assigned.
         for (int i = Priority - 1; i >= 0; i--)
         {
             if (Path_Materials[i] != null)
@@ -1909,11 +2098,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return null;
     }
 
-    /// <summary>
-    /// Multi-parent BFS returning every shortest path from Start to Target
-    /// within Max_Distance. Only equal-distance parents are recorded, so the
-    /// parent graph is a DAG and Reconstruct_Paths cannot cycle.
-    /// </summary>
     private List<List<Vector2Int>> Find_All_Paths(Vector2Int Start, Vector2Int Target, int Max_Distance)
     {
         List<List<Vector2Int>> All_Paths = new List<List<Vector2Int>>();
@@ -1922,6 +2106,8 @@ public class Battle_Board_Behavior : MonoBehaviour
             return All_Paths;
 
         int Moving_Team = Dragged_Model != null ? Dragged_Model.Team : 0;
+        bool Death_On_Wheels = Dragged_Model != null
+                               && Dragged_Model.Has_Status(Status_Type.Death_On_Wheels);
 
         Queue<Vector2Int> Queue = new Queue<Vector2Int>();
         Dictionary<Vector2Int, int> Distance = new Dictionary<Vector2Int, int>();
@@ -1949,18 +2135,16 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Neighbor.y < 0 || Neighbor.y >= Tile_Count_Y)
                     continue;
 
-                if (!Is_Tile_Passable(Neighbor.x, Neighbor.y))
-                    continue;
+                bool Passable = Is_Tile_Passable(Neighbor.x, Neighbor.y) || Death_On_Wheels;
+                if (!Passable) continue;
 
                 bool Is_Target = (Neighbor == Target);
 
                 Model_Standard_Behavior Occupant = Models[Neighbor.x, Neighbor.y];
                 if (Occupant != null)
                 {
-                    if (Occupant.Team == Moving_Team)
-                    {
-                        // Ally pass-through.
-                    }
+                    if (Occupant.Team == Moving_Team) { }
+                    else if (Death_On_Wheels) { }
                     else
                     {
                         if (!Is_Target) continue;
@@ -2007,10 +2191,6 @@ public class Battle_Board_Behavior : MonoBehaviour
             Reconstruct_Paths(Parent, Parents, new List<Vector2Int>(Current_Path), All_Paths);
     }
 
-    /// <summary>
-    /// Single-path BFS. Allies pass through; enemies block except the target
-    /// tile itself. Returned list includes both Start and Target, or is empty.
-    /// </summary>
     private List<Vector2Int> Find_Shortest_Path(
         Vector2Int Start,
         Vector2Int Target,
@@ -2023,6 +2203,8 @@ public class Battle_Board_Behavior : MonoBehaviour
             return new List<Vector2Int>();
 
         int Moving_Team = Dragged_Model != null ? Dragged_Model.Team : 0;
+        bool Death_On_Wheels = Dragged_Model != null
+                               && Dragged_Model.Has_Status(Status_Type.Death_On_Wheels);
 
         var Came_From = new Dictionary<Vector2Int, Vector2Int>();
         var Distance = new Dictionary<Vector2Int, int> { [Start] = 0 };
@@ -2045,14 +2227,18 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Neighbor.y < 0 || Neighbor.y >= Tile_Count_Y)
                     continue;
 
-                if (!Is_Tile_Passable(Neighbor.x, Neighbor.y))
-                    continue;
+                bool Passable = Is_Tile_Passable(Neighbor.x, Neighbor.y) || Death_On_Wheels;
+                if (!Passable) continue;
 
                 bool Is_Target = (Neighbor == Target);
 
                 Model_Standard_Behavior Occupant = Models[Neighbor.x, Neighbor.y];
-                if (Occupant != null && Occupant.Team != Moving_Team && !Is_Target)
-                    continue;
+                if (Occupant != null)
+                {
+                    if (Occupant.Team == Moving_Team) { }
+                    else if (Death_On_Wheels) { }
+                    else if (!Is_Target) continue;
+                }
 
                 if (Distance.ContainsKey(Neighbor))
                     continue;
@@ -2106,11 +2292,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         return Message;
     }
 
-    /// <summary>
-    /// Full tile-by-tile description of a path, for diagnostic logging.
-    /// Unlike Analyze_Path, this prints the actual coordinates so you can
-    /// diff two rebuilds of the same target and see which tiles changed.
-    /// </summary>
     private string Describe_Path(List<Vector2Int> Path)
     {
         if (Path == null || Path.Count == 0)
@@ -2129,6 +2310,167 @@ public class Battle_Board_Behavior : MonoBehaviour
     private bool Tile_Is_Hazard(Vector2Int Tile)
     {
         return Get_Tile_Type_At(Tile.x, Tile.y) == Board_Modifiers.Hazard;
+    }
+
+
+    // ============================================================
+    // DEATH ON WHEELS PREVIEW
+    // ============================================================
+
+    /// <summary>
+    /// Returns the override material for a tile while the dragged model
+    /// has Death on Wheels active. Enemy tiles get the shove-target
+    /// material; Wall/Cover tiles get the destruction material. Returns
+    /// null for normal tiles so callers can fall back to their default.
+    /// </summary>
+    private Material Get_DOW_Tile_Override(int X, int Y)
+    {
+        if (Dragged_Model == null) return null;
+        if (!Dragged_Model.Has_Status(Status_Type.Death_On_Wheels)) return null;
+
+        Board_Modifiers Type = Get_Tile_Type_At(X, Y);
+        if (Type == Board_Modifiers.Wall || Type == Board_Modifiers.Cover)
+        {
+            if (Death_On_Wheels_Destroy_Material != null)
+                return Death_On_Wheels_Destroy_Material;
+            if (Sprint_Range_Material != null)
+                return Sprint_Range_Material;
+            return Movement_Range_Material;
+        }
+
+        Model_Standard_Behavior Occupant = Models[X, Y];
+        if (Occupant != null && Occupant.Team != Dragged_Model.Team)
+            return Shove_Target_Material;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Simulates the current path's shove chain in a scratch copy of the
+    /// board and marks every tile where a victim would end up. Runs only
+    /// while the dragged model has Death on Wheels active.
+    /// </summary>
+    private void Update_DOW_Shove_Preview()
+    {
+        Clear_DOW_Shove_Preview();
+
+        if (Dragged_Model == null) return;
+        if (!Dragged_Model.Has_Status(Status_Type.Death_On_Wheels)) return;
+        if (All_Paths_To_Target.Count == 0) return;
+
+        int Index = Mathf.Clamp(Current_Path_Index, 0, All_Paths_To_Target.Count - 1);
+        List<Vector2Int> Path = All_Paths_To_Target[Index];
+        if (Path == null || Path.Count < 2) return;
+
+        int Push = 2;
+        if (Dragged_Model.Ability is Death_On_Wheels_Ability Dow)
+            Push = Mathf.Max(1, Dow.Shove_Push);
+
+        var Shadow = new Dictionary<Vector2Int, Model_Standard_Behavior>();
+        for (int X = 0; X < Tile_Count_X; X++)
+            for (int Y = 0; Y < Tile_Count_Y; Y++)
+                if (Models[X, Y] != null && Models[X, Y] != Dragged_Model)
+                    Shadow[new Vector2Int(X, Y)] = Models[X, Y];
+
+        var Final_Positions = new Dictionary<Model_Standard_Behavior, Vector2Int>();
+        Vector2Int Engine = new Vector2Int(Dragged_Model.Current_X, Dragged_Model.Current_Y);
+
+        for (int i = 1; i < Path.Count; i++)
+        {
+            Vector2Int Next = Path[i];
+            Vector2Int Dir = Next - Engine;
+
+            if (Shadow.TryGetValue(Next, out var Victim)
+                && Victim.Team != Dragged_Model.Team)
+            {
+                Shadow_Push_Chain(Victim, Next, Dir, Push, Shadow, Final_Positions);
+            }
+
+            Engine = Next;
+        }
+
+        if (Final_Positions.Count == 0) return;
+
+        Material Mat = Death_On_Wheels_Shove_Preview_Material != null
+            ? Death_On_Wheels_Shove_Preview_Material
+            : Shove_Destination_Material;
+
+        if (Mat == null) return;
+
+        foreach (var kvp in Final_Positions)
+        {
+            Vector2Int Dest = kvp.Value;
+            if (Dest.x < 0 || Dest.x >= Tile_Count_X || Dest.y < 0 || Dest.y >= Tile_Count_Y)
+                continue;
+
+            if (Dest == Path[Path.Count - 1]) continue;
+
+            DOW_Shove_Preview_Tiles.Add(Dest);
+            if (Tiles[Dest.x, Dest.y] != null)
+                Tiles[Dest.x, Dest.y].GetComponent<MeshRenderer>().material = Mat;
+        }
+    }
+
+    private void Clear_DOW_Shove_Preview()
+    {
+        foreach (var Tile in DOW_Shove_Preview_Tiles)
+        {
+            if (Tile.x < 0 || Tile.x >= Tile_Count_X || Tile.y < 0 || Tile.y >= Tile_Count_Y)
+                continue;
+
+            Material DOW = Get_DOW_Tile_Override(Tile.x, Tile.y);
+            if (DOW != null)
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = DOW;
+            else if (Movement_Range_Highlights.Contains(Tile) && Movement_Range_Material != null)
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
+            else if (Path_Highlight_Tiles.Contains(Tile))
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Get_Path_Material_For_Tile(Tile);
+            else
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Tile_Material;
+
+            Reset_Tile_Alpha(Tile);
+        }
+
+        DOW_Shove_Preview_Tiles.Clear();
+    }
+
+    private void Shadow_Push_Chain(
+        Model_Standard_Behavior Victim,
+        Vector2Int Victim_Pos,
+        Vector2Int Direction,
+        int Max_Distance,
+        Dictionary<Vector2Int, Model_Standard_Behavior> Shadow,
+        Dictionary<Model_Standard_Behavior, Vector2Int> Final_Positions)
+    {
+        Vector2Int Current = Victim_Pos;
+        int Moved = 0;
+
+        for (int Step = 0; Step < Max_Distance; Step++)
+        {
+            Vector2Int Next = Current + Direction;
+
+            if (Next.x < 0 || Next.x >= Tile_Count_X ||
+                Next.y < 0 || Next.y >= Tile_Count_Y)
+                break;
+
+            if (!Is_Tile_Passable(Next.x, Next.y))
+                break;
+
+            if (Shadow.TryGetValue(Next, out var Blocker))
+            {
+                Shadow_Push_Chain(Blocker, Next, Direction, Max_Distance - Step,
+                                  Shadow, Final_Positions);
+                if (Shadow.ContainsKey(Next)) break;
+            }
+
+            Shadow.Remove(Current);
+            Shadow[Next] = Victim;
+            Current = Next;
+            Moved++;
+        }
+
+        if (Moved > 0)
+            Final_Positions[Victim] = Current;
     }
 
 
@@ -2183,6 +2525,7 @@ public class Battle_Board_Behavior : MonoBehaviour
             Apply_Alpha_To_Highlight_Group(Movement_Range_Highlights, Alpha);
             Apply_Alpha_To_Highlight_Group(Shove_Target_Highlights, Alpha);
             Apply_Alpha_To_Highlight_Group(Shove_Destination_Highlights, Alpha);
+            Apply_Alpha_To_Highlight_Group(DOW_Shove_Preview_Tiles, Alpha);
             Apply_Alpha_To_Path_Tiles(Alpha);
         }
     }
@@ -2201,11 +2544,6 @@ public class Battle_Board_Behavior : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Path tiles can carry one of several priority materials, so we flash
-    /// each tile's own material. Tiles owned by a higher-priority group are
-    /// skipped so exactly one pass touches each tile.
-    /// </summary>
     private void Apply_Alpha_To_Path_Tiles(float Alpha)
     {
         foreach (Vector2Int Tile in Path_Highlight_Tiles)
@@ -2216,6 +2554,7 @@ public class Battle_Board_Behavior : MonoBehaviour
             if (Movement_Range_Highlights.Contains(Tile)) continue;
             if (Shove_Target_Highlights.Contains(Tile)) continue;
             if (Shove_Destination_Highlights.Contains(Tile)) continue;
+            if (DOW_Shove_Preview_Tiles.Contains(Tile)) continue;
 
             Renderer Renderer = Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>();
             if (Renderer == null || Renderer.material == null) continue;
@@ -2240,25 +2579,15 @@ public class Battle_Board_Behavior : MonoBehaviour
     {
         Clear_Movement_Range_Highlights();
 
-        if (Model.Stats == null)
-            return;
-
-        if (Model.Has_Ended_Turn)
-            return;
+        if (Model.Stats == null) return;
+        if (Model.Has_Ended_Turn) return;
 
         int Movement_Range = Range_Override ?? Model.Movement_Remaining_This_Turn;
-
-        if (Movement_Range <= 0)
-            return;
+        if (Movement_Range <= 0) return;
 
         int Start_X = Model.Current_X;
         int Start_Y = Model.Current_Y;
 
-        // Sprint-band threshold. Only meaningful while the model is sprinting.
-        // Base_Remaining_For_Sprint is the number of steps still available
-        // within the pre-sprint allowance. Any tile farther than that is
-        // sprint-only. Recomputed here so it tracks correctly as the model
-        // spends movement during the turn.
         bool Show_Sprint_Band = Model.Is_Sprinting_This_Turn && Model.Stats != null;
         int Base_Remaining_For_Sprint = -1;
 
@@ -2267,11 +2596,11 @@ public class Battle_Board_Behavior : MonoBehaviour
             int Sprint_Total = Mathf.Min(
                 Model.Movement_Before_Sprint + Model.Stats.Sprint_Bonus,
                 Model.Stats.Get_Sprint_Range());
-
             int Spent_Since_Sprint = Sprint_Total - Model.Movement_Remaining_This_Turn;
-
             Base_Remaining_For_Sprint = Model.Movement_Before_Sprint - Spent_Since_Sprint;
         }
+
+        bool Death_On_Wheels = Model.Has_Status(Status_Type.Death_On_Wheels);
 
         bool[,] Visited = new bool[Tile_Count_X, Tile_Count_Y];
         Queue<Vector2Int> To_Explore = new Queue<Vector2Int>();
@@ -2291,8 +2620,7 @@ public class Battle_Board_Behavior : MonoBehaviour
             Vector2Int Current = To_Explore.Dequeue();
             int Current_Distance = Distance_Map[Current];
 
-            if (Current_Distance >= Movement_Range)
-                continue;
+            if (Current_Distance >= Movement_Range) continue;
 
             foreach (Vector2Int Direction in Cardinal_Directions)
             {
@@ -2302,74 +2630,102 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Neighbor.y < 0 || Neighbor.y >= Tile_Count_Y)
                     continue;
 
-                if (Visited[Neighbor.x, Neighbor.y])
-                    continue;
+                if (Visited[Neighbor.x, Neighbor.y]) continue;
 
-                if (!Is_Tile_Passable(Neighbor.x, Neighbor.y))
-                    continue;
+                bool Passable = Is_Tile_Passable(Neighbor.x, Neighbor.y) || Death_On_Wheels;
+                if (!Passable) continue;
 
                 Model_Standard_Behavior Occupant = Models[Neighbor.x, Neighbor.y];
+                Board_Modifiers Neighbor_Type = Get_Tile_Type_At(Neighbor.x, Neighbor.y);
+                bool Is_Wall = Neighbor_Type == Board_Modifiers.Wall
+                            || Neighbor_Type == Board_Modifiers.Cover;
+
+                // Entry cost: 1 per tile, +1 for a Wall/Cover that will be
+                // destroyed during Death on Wheels.
+                int Step_Cost = 1;
+                if (Death_On_Wheels && Is_Wall) Step_Cost += 1;
+
+                int New_Distance = Current_Distance + Step_Cost;
 
                 if (Occupant != null)
                 {
                     if (Occupant.Team == Model.Team)
                     {
-                        // Ally pass-through. The ally's tile is not a legal
-                        // landing spot, so it is not highlighted and gets no
-                        // material. It is still traversed so the search can
-                        // continue past it.
                         Visited[Neighbor.x, Neighbor.y] = true;
-                        int Ally_Distance = Current_Distance + 1;
-                        Distance_Map[Neighbor] = Ally_Distance;
-
-                        if (Ally_Distance < Movement_Range)
-                            To_Explore.Enqueue(Neighbor);
-
+                        Distance_Map[Neighbor] = New_Distance;
+                        if (New_Distance < Movement_Range) To_Explore.Enqueue(Neighbor);
                         continue;
                     }
 
-                    if (!Can_Shove)
+                    if (Death_On_Wheels)
+                    {
+                        Visited[Neighbor.x, Neighbor.y] = true;
+                        Distance_Map[Neighbor] = New_Distance;
+
+                        if (New_Distance <= Movement_Range)
+                        {
+                            Movement_Range_Highlights.Add(Neighbor);
+                            Material Mat = Shove_Target_Material != null
+                                ? Shove_Target_Material
+                                : Movement_Range_Material;
+                            if (Mat != null)
+                                Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Mat;
+                        }
+
+                        if (New_Distance < Movement_Range) To_Explore.Enqueue(Neighbor);
                         continue;
+                    }
+
+                    if (!Can_Shove) continue;
 
                     Visited[Neighbor.x, Neighbor.y] = true;
                     Shove_Target_Highlights.Add(Neighbor);
                     if (Shove_Target_Material != null)
                         Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Shove_Target_Material;
-
-                    // The sprinter stops adjacent; no expansion past this tile.
                     continue;
                 }
 
                 Visited[Neighbor.x, Neighbor.y] = true;
-                int New_Distance = Current_Distance + 1;
                 Distance_Map[Neighbor] = New_Distance;
 
                 if (New_Distance <= Movement_Range)
                 {
                     Movement_Range_Highlights.Add(Neighbor);
 
-                    bool In_Sprint_Range = Show_Sprint_Band
-                                           && New_Distance > Base_Remaining_For_Sprint;
-
-                    if (In_Sprint_Range)
+                    Material DOW_Override = null;
+                    if (Death_On_Wheels && Is_Wall)
                     {
-                        Sprint_Range_Highlights.Add(Neighbor);
-
-                        Material Mat = Sprint_Range_Material != null
-                            ? Sprint_Range_Material
+                        DOW_Override = Death_On_Wheels_Destroy_Material != null
+                            ? Death_On_Wheels_Destroy_Material
                             : Movement_Range_Material;
-
-                        if (Mat != null)
-                            Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Mat;
                     }
-                    else if (Movement_Range_Material != null)
+
+                    if (DOW_Override != null)
                     {
-                        Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
+                        Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = DOW_Override;
+                    }
+                    else
+                    {
+                        bool In_Sprint_Range = Show_Sprint_Band
+                                               && New_Distance > Base_Remaining_For_Sprint;
+
+                        if (In_Sprint_Range)
+                        {
+                            Sprint_Range_Highlights.Add(Neighbor);
+                            Material Mat = Sprint_Range_Material != null
+                                ? Sprint_Range_Material
+                                : Movement_Range_Material;
+                            if (Mat != null)
+                                Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Mat;
+                        }
+                        else if (Movement_Range_Material != null)
+                        {
+                            Tiles[Neighbor.x, Neighbor.y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
+                        }
                     }
                 }
 
-                if (New_Distance < Movement_Range)
-                    To_Explore.Enqueue(Neighbor);
+                if (New_Distance < Movement_Range) To_Explore.Enqueue(Neighbor);
             }
         }
 
@@ -2398,9 +2754,15 @@ public class Battle_Board_Behavior : MonoBehaviour
 
     private void Clear_Path_Highlights()
     {
+        Clear_DOW_Shove_Preview();
+
         foreach (Vector2Int Tile in Path_Highlight_Tiles)
         {
-            if (Movement_Range_Highlights.Contains(Tile) && Movement_Range_Material != null)
+            Material DOW = Get_DOW_Tile_Override(Tile.x, Tile.y);
+
+            if (DOW != null)
+                Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = DOW;
+            else if (Movement_Range_Highlights.Contains(Tile) && Movement_Range_Material != null)
                 Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Movement_Range_Material;
             else if (Shove_Target_Highlights.Contains(Tile) && Shove_Target_Material != null)
                 Tiles[Tile.x, Tile.y].GetComponent<MeshRenderer>().material = Shove_Target_Material;
@@ -2658,13 +3020,15 @@ public class Battle_Board_Behavior : MonoBehaviour
         if (Model.Stats != null)
             Model.Current_Health = Model.Stats.Health;
 
-        // Status registry lookup for status rendering. Safe to pass null;
-        // models will still track statuses but render the gray fallback.
+        if (Model.Stats != null && Model.Stats.Ability_Data != null)
+        {
+            Model.Ability = Model.Stats.Ability_Data;
+            Model.Ability_Recharge_Remaining = 0;
+            Model.Ability.On_Equip(Model);
+        }
+
         Model.Set_Status_Registry(Status_Registry);
-
-        // Board-level tuning wins over whatever the prefab was saved with.
         Model.Configure_Motion(Board_Move_Duration, Board_Follow_Speed, Board_Ease_Discrete_Moves);
-
         Apply_Team_Material(Model, Team_Mat);
         return Model;
     }
@@ -2725,6 +3089,8 @@ public class Battle_Board_Behavior : MonoBehaviour
     // ============================================================
 
     public Model_Standard_Behavior Get_Selected_Model() => Selected_Model;
+    public Combat_Manager Get_Combat_Manager() => Combat_Manager_Ref;
+    public Ability_Targeting_Controller Get_Ability_Targeting_Controller() => Ability_Targeting;
 
     public Model_Standard_Behavior Get_Model_At(int X, int Y)
     {
@@ -2782,12 +3148,13 @@ public class Battle_Board_Behavior : MonoBehaviour
                     Model.Has_Ended_Turn = false;
                     Model.Is_Sprinting_This_Turn = false;
                     Model.Has_Moved_Since_Sprint = false;
+                    Model.Has_Used_Sprint_Bonus = false;
 
-                    // Decrements every active status (including Vulnerability)
-                    // by one turn and removes any that reach zero. Runs at
-                    // the start of the owner's turn, so a status applied by
-                    // the enemy lasts one full enemy turn before ticking.
                     Model.Tick_Statuses();
+                    Model.Tick_Ability_Recharge();
+
+                    if (Model.Ability != null)
+                        Model.Ability.On_Owner_Turn_Start(Model);
                 }
             }
         }
@@ -2997,10 +3364,6 @@ public class Battle_Board_Behavior : MonoBehaviour
     // TILE RESTORATION (used by Combat_Manager)
     // ============================================================
 
-    /// <summary>
-    /// Restores tiles to their appropriate base material, respecting any
-    /// active movement, path, or shove highlight. Used by Combat_Manager.
-    /// </summary>
     public void Restore_Tiles_To_Default(List<Vector2Int> Tiles_To_Restore)
     {
         foreach (Vector2Int Tile in Tiles_To_Restore)
@@ -3013,9 +3376,6 @@ public class Battle_Board_Behavior : MonoBehaviour
 
             if (Movement_Range_Highlights.Contains(Tile))
             {
-                // A tile that lives in the sprint band gets its own material back,
-                // so Combat_Manager clearing its highlights doesn't downgrade a
-                // sprint tile to the plain movement-range colour.
                 bool Is_Sprint_Tile = Sprint_Range_Highlights.Contains(Tile);
 
                 if (Is_Sprint_Tile && Sprint_Range_Material != null)
