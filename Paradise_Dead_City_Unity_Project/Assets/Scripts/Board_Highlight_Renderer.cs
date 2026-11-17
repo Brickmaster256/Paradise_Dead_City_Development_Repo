@@ -654,9 +654,6 @@ public class Board_Highlight_Renderer : MonoBehaviour
         if (Renderer == null) return;
 
         Renderer.material = Mat;
-        Color C = Renderer.material.color;
-        C.a = 1f;
-        Renderer.material.color = C;
     }
 
     public void Paint_Base(Vector2Int Tile)
@@ -759,6 +756,8 @@ public class Board_Highlight_Renderer : MonoBehaviour
         bool Is_Primary = (Priority == 0);
         Material Regular_Path_Material = Get_Path_Material(Priority);
 
+        bool Has_Kinshiru = Dragged_Model != null && Dragged_Model.Has_Status(Status_Type.Kinshiru);
+
         foreach (Vector2Int Tile in Path)
         {
             if (!Path_Highlight_Tiles.Contains(Tile)) Path_Highlight_Tiles.Add(Tile);
@@ -770,10 +769,18 @@ public class Board_Highlight_Renderer : MonoBehaviour
                 continue;
             }
 
-            if (Is_Primary && Board.Get_Tile_Type_At(Tile.x, Tile.y) == Board_Modifiers.Hazard && Hazard_Path_Material != null)
+            if (Has_Kinshiru && Hazard_Path_Material != null)
+            {
                 Paint_Tile(Tile, Hazard_Path_Material);
+            }
+            else if (Is_Primary && Board.Get_Tile_Type_At(Tile.x, Tile.y) == Board_Modifiers.Hazard && Hazard_Path_Material != null)
+            {
+                Paint_Tile(Tile, Hazard_Path_Material);
+            }
             else if (Regular_Path_Material != null)
+            {
                 Paint_Tile(Tile, Regular_Path_Material);
+            }
         }
     }
 

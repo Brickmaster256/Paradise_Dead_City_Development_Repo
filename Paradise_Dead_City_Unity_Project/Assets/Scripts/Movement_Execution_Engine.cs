@@ -76,6 +76,13 @@ public class Movement_Execution_Engine : MonoBehaviour
             model.Remove_Status(Status_Type.Kinshiru);
             model.Apply_Vulnerability();
             bool Survived = model.Take_Damage(1);
+
+            var CardUI = FindAnyObjectByType<Card_UI_Controller>();
+            if (CardUI != null && CardUI.Get_Displayed_Model() == model)
+            {
+                CardUI.Silent_Refresh_Card(model);
+            }
+
             if (!Survived) CombatManager?.Kill_Model(model);
             return false;
         }

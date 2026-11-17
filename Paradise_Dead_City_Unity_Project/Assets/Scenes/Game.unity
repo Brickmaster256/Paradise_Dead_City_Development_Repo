@@ -640,7 +640,7 @@ MonoBehaviour:
   Min_Pitch: 10
   Max_Pitch: 89
   Allow_Full_Yaw: 1
-  Yaw_Range_Degrees: 120
+  Yaw_Range_Degrees: 360
   Reset_Key: 9
   InputActions: {fileID: -944628639613478452, guid: 4a6743d916687234fbaab43d6a68bd8b, type: 3}
   Action_Map_Name: Camera
@@ -2081,6 +2081,7 @@ GameObject:
   - component: {fileID: 699315165}
   - component: {fileID: 699315164}
   - component: {fileID: 699315166}
+  - component: {fileID: 699315167}
   m_Layer: 5
   m_Name: Crypt_Blade_Panel
   m_TagString: Untagged
@@ -2122,9 +2123,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f1f904ea31ae4b41aff2b98f3337880, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Crypt_Blade_Prompt_UI
+  CanvasGroup: {fileID: 0}
   Normal_Damage_Button: {fileID: 1508881602}
   Roll_Dice_Button: {fileID: 582764667}
   Prompt_Text: {fileID: 1108789330}
+  FadeDuration: 0.15
 --- !u!114 &699315162
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2223,6 +2226,18 @@ MonoBehaviour:
   m_FlexibleWidth: -1
   m_FlexibleHeight: -1
   m_LayoutPriority: 1
+--- !u!225 &699315167
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 699315158}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 1
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &717385071
 GameObject:
   m_ObjectHideFlags: 0
@@ -5280,7 +5295,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Match_Flow_Manager
   Board: {fileID: 267038573}
-  Player_1_Faction_Ref: {fileID: 11400000, guid: 63668a7c46c18774faa37a5ee738e004, type: 2}
+  Player_1_Faction_Ref: {fileID: 11400000, guid: a4a2d948182e5f8478f31cea887187b6, type: 2}
   Player_2_Faction_Ref: {fileID: 11400000, guid: eb6197eb03ddf9c4ea7112ca599d24b8, type: 2}
   Turn_Time_Limit: 30
   Current_Phase: 0

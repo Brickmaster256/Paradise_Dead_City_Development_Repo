@@ -53,7 +53,8 @@ public class Kinshiru_Ability : Ability_Definition_SO
 
         Model.Ability_Recharge_Remaining = Mathf.Max(Recharge_Turns, 1);
 
-        
+        var CardUI = Object.FindAnyObjectByType<Card_UI_Controller>();
+        if (CardUI != null) CardUI.Silent_Refresh_Card(Target);
 
         Debug.Log($"[Kinshiru] {Model.Stats.Model_Name} placed a seal on {Target.Stats.Model_Name}!");
     }

@@ -14,6 +14,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Army_Composition_SO
   Composition_Name: Test_Army_B
   Army_Roster:
+  - Type: 4
+    Count: 1
+  - Type: 3
+    Count: 1
+  - Type: 1
+    Count: 1
+  - Type: 2
+    Count: 1
   - Type: 0
     Count: 1
   Spawn_Tile_Prefab: {fileID: 5950313440568233867, guid: 71b87612891c2c941a0a40738ceeae7a, type: 3}
