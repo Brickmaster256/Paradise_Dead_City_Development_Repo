@@ -3,6 +3,28 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "New Faction", menuName = "Scriptable Objects/Faction Data")]
 public class Faction_Data_SO : ScriptableObject
 {
+    [System.Serializable]
+    public class Model_Art_Assets
+    {
+        public Model_Type Type;
+
+        [Header("Initiative Bar")]
+        public Sprite Initiative_Icon;
+
+        [Header("Stat Card (Left Side)")]
+        public Sprite Stat_Card_Portrait;
+
+        [Header("Army Row (Bottom)")]
+        public Sprite Army_Card_Portrait;
+
+        [Header("On the Board")]
+        public Sprite Board_Sprite;
+    }
+
+    // ============================================================
+    // SERIALIZED FIELDS
+    // ============================================================
+
     public string Faction_Name;
 
     [Header("Model Prefabs")]
@@ -25,15 +47,17 @@ public class Faction_Data_SO : ScriptableObject
     [Header("Army Composition")]
     public Army_Composition_SO Army_Composition;
 
-    [Header("UI Icons")]
+    [Header("UI Icons & Artwork")]
     public Sprite Faction_Icon;
-    public Sprite Chaff_Icon;
-    public Sprite Specialist_A_Icon;
-    public Sprite Specialist_B_Icon;
-    public Sprite Axillary_Icon;
-    public Sprite Death_Head_Icon;
 
-    // Helper method to get the prefab based on the model type
+    [Tooltip("Add one entry for each Model_Type (Chaff, Specialist, etc.)")]
+    public Model_Art_Assets[] Model_Art;
+
+
+    // ============================================================
+    // LOOKUPS
+    // ============================================================
+
     public GameObject Get_Prefab_By_Type(Model_Type Type)
     {
         return Type switch
@@ -47,7 +71,6 @@ public class Faction_Data_SO : ScriptableObject
         };
     }
 
-    // Helper method to get stats based on the model type
     public Model_Stats_SO Get_Stats_By_Type(Model_Type Type)
     {
         return Type switch
@@ -61,23 +84,18 @@ public class Faction_Data_SO : ScriptableObject
         };
     }
 
-    // Get the faction icon
+    public Model_Art_Assets Get_Art_By_Type(Model_Type Type)
+    {
+        if (Model_Art == null) return null;
+        foreach (var Art in Model_Art)
+        {
+            if (Art.Type == Type) return Art;
+        }
+        return null;
+    }
+
     public Sprite Get_Faction_Icon()
     {
         return Faction_Icon;
-    }
-
-    // Get model icon based on type
-    public Sprite Get_Model_Icon(Model_Type Type)
-    {
-        return Type switch
-        {
-            Model_Type.Chaff => Chaff_Icon,
-            Model_Type.Specialist_A => Specialist_A_Icon,
-            Model_Type.Specialist_B => Specialist_B_Icon,
-            Model_Type.Axillary => Axillary_Icon,
-            Model_Type.DeathHead => Death_Head_Icon,
-            _ => null
-        };
     }
 }
